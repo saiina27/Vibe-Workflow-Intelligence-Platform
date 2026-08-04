@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 
-app = FastAPI()
+from app.api.router import api_router
+from app.core.config import settings
 
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+)
 
-@app.get("/")
-def root():
-    return {"message": "Welcome to Vibe 🚀"}
+app.include_router(api_router)
