@@ -1,6 +1,7 @@
 from app.ai.prompt_cache import PromptCache
 from app.ai.router import ProviderRouter
 from app.ai.retry import ai_retry
+from app.ai.usage_metrics import usage_metrics
 from app.schemas.ai import AIRequest, AIResponse
 
 
@@ -12,7 +13,6 @@ class AIGateway:
 
         self.prompt_cache = PromptCache()
 
-
     @ai_retry
     def _call_provider(
         self,
@@ -23,17 +23,14 @@ class AIGateway:
             request
         )
 
-
     def generate(
         self,
         request: AIRequest,
     ) -> AIResponse:
 
-
         cached_response = self.prompt_cache.get(
             request.prompt
         )
-
 
         if cached_response is not None:
 
@@ -45,22 +42,22 @@ class AIGateway:
                 provider="cache",
             )
 
-
         try:
 
             ai_response = self._call_provider(
                 request
             )
 
+            usage_metrics.record(
+                ai_response
+            )
 
             self.prompt_cache.set(
                 prompt=request.prompt,
                 response=ai_response.content,
             )
 
-
             return ai_response
-
 
         except Exception as e:
 

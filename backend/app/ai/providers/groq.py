@@ -1,3 +1,5 @@
+import time
+
 from groq import Groq
 
 from app.core.config import settings
@@ -17,14 +19,15 @@ class GroqProvider:
             or "llama-3.3-70b-versatile"
         )
 
-
     def generate(
         self,
         request: AIRequest,
     ) -> AIResponse:
 
+        start_time = time.time()
+
         response = self.client.chat.completions.create(
-            model=self.model,
+            model=request.model or self.model,
             messages=[
                 {
                     "role": "user",
@@ -33,6 +36,9 @@ class GroqProvider:
             ],
         )
 
+        latency = (
+            time.time() - start_time
+        ) * 1000
 
         content = (
             response
@@ -41,11 +47,21 @@ class GroqProvider:
             .content
         )
 
+        usage = response.usage
 
         return AIResponse(
             content=content,
-            model=self.model,
+            model=request.model or self.model,
             provider="groq",
-            input_tokens=0,
-            output_tokens=0,
+            input_tokens=(
+                usage.prompt_tokens
+                if usage
+                else 0
+            ),
+            output_tokens=(
+                usage.completion_tokens
+                if usage
+                else 0
+            ),
+            latency_ms=latency,
         )

@@ -25,7 +25,7 @@ class GeminiProvider(AIProvider):
 
 
         response = self.client.models.generate_content(
-            model=settings.gemini_model,
+            model=request.model or settings.gemini_model,
             contents=request.prompt,
         )
 
@@ -35,13 +35,27 @@ class GeminiProvider(AIProvider):
         ) * 1000
 
 
+        usage = response.usage_metadata
+
         return AIResponse(
 
             content=response.text,
 
-            model=settings.gemini_model,
+            model=request.model or settings.gemini_model,
 
             provider="gemini",
+
+            input_tokens=(
+                usage.prompt_token_count
+                if usage
+                else 0
+            ),
+
+            output_tokens=(
+                usage.candidates_token_count
+                if usage
+                else 0
+            ),
 
             latency_ms=latency,
 

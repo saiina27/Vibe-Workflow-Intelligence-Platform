@@ -4,10 +4,9 @@ from sqlalchemy.orm import Session
 from app.dependencies.database import get_db
 from app.schemas.message import MessageCreate, MessageResponse
 from app.services.auth_service import get_current_user
-from app.services.message_service import (
-    create_user_message,
-    get_chat_messages,
-)
+from app.services.conversation_service import ask_ai
+from app.services.message_service import get_chat_messages
+
 
 router = APIRouter(
     prefix="/chats/{chat_id}/messages",
@@ -25,11 +24,18 @@ def create_message(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return create_user_message(
+    ask_ai(
+        db=db,
+        chat_id=chat_id,
+        content=request.content,
+    )
+
+    messages = get_chat_messages(
         db,
         chat_id,
-        request.content,
     )
+
+    return messages[-1]
 
 
 @router.get(
