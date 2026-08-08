@@ -21,3 +21,8 @@ class TaskType(str, Enum):
     IMAGE = "IMAGE"
 
     UNKNOWN = "UNKNOWN"
+
+class TaskComplexity(str, Enum):
+    SIMPLE = "SIMPLE"
+    MODERATE = "MODERATE"
+    COMPLEX = "COMPLEX"

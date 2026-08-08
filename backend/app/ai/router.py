@@ -30,7 +30,8 @@ class ProviderRouter:
     ) -> AIResponse:
 
         decision = build_routing_decision(
-            request.task_type
+            request.task_type,
+            request.complexity,
         )
 
         provider = self.registry.providers.get(
@@ -43,6 +44,7 @@ class ProviderRouter:
         print("=" * 60)
         print("AI ROUTING DECISION")
         print(f"Task: {decision.task_type.value}")
+        print(f"Complexity: {decision.complexity.value}")
         print(f"Provider: {decision.provider}")
         print(f"Model: {decision.model}")
         print(f"Reason: {decision.reason}")

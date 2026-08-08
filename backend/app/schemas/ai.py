@@ -2,7 +2,7 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from app.models.enums import TaskType
+from app.models.enums import TaskComplexity, TaskType
 
 
 class AIRequest(BaseModel):
@@ -10,6 +10,8 @@ class AIRequest(BaseModel):
     prompt: str
 
     task_type: TaskType = TaskType.UNKNOWN
+
+    complexity: TaskComplexity = TaskComplexity.SIMPLE
 
     model: Optional[str] = None
 

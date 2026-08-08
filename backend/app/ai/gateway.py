@@ -1,4 +1,4 @@
-from app.ai.prompt_cache import PromptCache
+from app.ai.prompt_cache import prompt_cache
 from app.ai.router import ProviderRouter
 from app.ai.retry import ai_retry
 from app.ai.usage_metrics import usage_metrics
@@ -10,8 +10,6 @@ class AIGateway:
     def __init__(self):
 
         self.provider = ProviderRouter()
-
-        self.prompt_cache = PromptCache()
 
     @ai_retry
     def _call_provider(
@@ -28,7 +26,7 @@ class AIGateway:
         request: AIRequest,
     ) -> AIResponse:
 
-        cached_response = self.prompt_cache.get(
+        cached_response = prompt_cache.get(
             request.prompt
         )
 
@@ -52,7 +50,7 @@ class AIGateway:
                 ai_response
             )
 
-            self.prompt_cache.set(
+            prompt_cache.set(
                 prompt=request.prompt,
                 response=ai_response.content,
             )

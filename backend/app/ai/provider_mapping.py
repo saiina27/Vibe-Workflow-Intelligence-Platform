@@ -1,25 +1,33 @@
-from app.models.enums import TaskType
-
-
-PROVIDER_MAPPING = {
-    TaskType.CHAT: "gemini",
-    TaskType.CODE: "groq",
-    TaskType.DOCUMENT: "gemini",
-    TaskType.ANALYSIS: "groq",
-    TaskType.DECISION: "groq",
-    TaskType.SUGGESTION: "gemini",
-    TaskType.MEMORY: "gemini",
-    TaskType.SEARCH: "gemini",
-    TaskType.IMAGE: "gemini",
-    TaskType.UNKNOWN: "gemini",
-}
+from app.models.enums import TaskComplexity, TaskType
 
 
 def get_provider_for_task(
     task_type: TaskType,
+    complexity: TaskComplexity = TaskComplexity.SIMPLE,
 ) -> str:
 
-    return PROVIDER_MAPPING.get(
-        task_type,
-        "gemini",
-    )
+    technical_tasks = {
+        TaskType.CODE,
+        TaskType.ANALYSIS,
+        TaskType.DECISION,
+    }
+
+    # Simple tasks use Gemini.
+    if complexity == TaskComplexity.SIMPLE:
+        return "gemini"
+
+    # Moderate technical tasks use Groq.
+    if complexity == TaskComplexity.MODERATE:
+        if task_type in technical_tasks:
+            return "groq"
+
+        return "gemini"
+
+    # Complex technical tasks use Groq.
+    if complexity == TaskComplexity.COMPLEX:
+        if task_type in technical_tasks:
+            return "groq"
+
+        return "gemini"
+
+    return "gemini"

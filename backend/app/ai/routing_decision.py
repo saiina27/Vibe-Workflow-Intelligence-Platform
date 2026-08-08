@@ -2,13 +2,14 @@ from dataclasses import dataclass
 
 from app.ai.provider_mapping import get_provider_for_task
 from app.core.config import settings
-from app.models.enums import TaskType
+from app.models.enums import TaskComplexity, TaskType
 
 
 @dataclass
 class RoutingDecision:
 
     task_type: TaskType
+    complexity: TaskComplexity
     provider: str
     model: str
     reason: str
@@ -16,10 +17,12 @@ class RoutingDecision:
 
 def build_routing_decision(
     task_type: TaskType,
+    complexity: TaskComplexity = TaskComplexity.SIMPLE,
 ) -> RoutingDecision:
 
     provider = get_provider_for_task(
-        task_type
+        task_type,
+        complexity,
     )
 
     if provider == "groq":
@@ -40,12 +43,13 @@ def build_routing_decision(
         )
 
     reason = (
-        f"{task_type.value} tasks are routed "
-        f"to {provider}"
+        f"{complexity.value} {task_type.value} "
+        f"tasks are routed to {provider}"
     )
 
     return RoutingDecision(
         task_type=task_type,
+        complexity=complexity,
         provider=provider,
         model=model,
         reason=reason,

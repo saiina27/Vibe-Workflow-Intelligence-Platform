@@ -14,9 +14,14 @@ def generate_ai_response(
         prompt
     )
 
+    complexity = task_classifier.classify_complexity(
+        prompt
+    )
+
     request = AIRequest(
         prompt=prompt,
         task_type=task_type,
+        complexity=complexity,
     )
 
     response = gateway.generate(

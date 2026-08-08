@@ -1,4 +1,4 @@
-from app.models.enums import TaskType
+from app.models.enums import TaskComplexity, TaskType
 
 
 class TaskClassifier:
@@ -36,27 +36,137 @@ class TaskClassifier:
 
         return TaskType.CHAT
 
-    def _is_code(
+    def classify_complexity(
+        self,
+        prompt: str,
+    ) -> TaskComplexity:
+
+        prompt = prompt.lower()
+
+        if self._is_complex(prompt):
+            return TaskComplexity.COMPLEX
+
+        if self._is_moderate(prompt):
+            return TaskComplexity.MODERATE
+
+        return TaskComplexity.SIMPLE
+
+    def _is_complex(
         self,
         prompt: str,
     ) -> bool:
 
         keywords = [
-            "code",
-            "python",
-            "java",
-            "javascript",
-            "fastapi",
-            "sql",
-            "api",
-            "bug",
+            "architecture",
+            "production",
+            "system design",
+            "distributed",
+            "microservices",
+            "multi-agent",
+            "scalable",
+            "optimization",
+            "optimize",
+            "deep dive",
+            "advanced",
+            "complex",
+            "end-to-end",
+        ]
+
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
+
+    def _is_moderate(
+        self,
+        prompt: str,
+    ) -> bool:
+
+        keywords = [
+            "implement",
+            "build",
             "debug",
+            "refactor",
+            "integrate",
+            "explain",
+            "compare",
+            "analyze",
+            "design",
+            "write",
+        ]
+
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
+
+    def _is_code(
+        self,
+        prompt: str,
+    ) -> bool:
+
+        code_keywords = [
+            "code",
             "function",
             "class",
             "algorithm",
+            "api",
+            "bug",
+            "debug",
+            "implement",
+            "program",
+            "script",
+            "syntax",
+            "exception",
+            "error",
+            "refactor",
+            "compile",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        language_keywords = [
+            "python",
+            "java",
+            "javascript",
+            "typescript",
+            "c++",
+            "fastapi",
+            "sql",
+        ]
+
+        has_code_keyword = any(
+            keyword in prompt
+            for keyword in code_keywords
+        )
+
+        has_language_keyword = any(
+            keyword in prompt
+            for keyword in language_keywords
+        )
+
+        code_actions = [
+            "write",
+            "create",
+            "build",
+            "implement",
+            "develop",
+            "fix",
+            "debug",
+            "generate",
+            "run",
+        ]
+
+        has_code_action = any(
+            action in prompt
+            for action in code_actions
+        )
+
+        return (
+            has_code_keyword
+            or (
+                has_language_keyword
+                and has_code_action
+            )
+        )
 
     def _is_document(
         self,
@@ -75,7 +185,10 @@ class TaskClassifier:
             "translate",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_analysis(
         self,
@@ -90,7 +203,10 @@ class TaskClassifier:
             "explain",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_decision(
         self,
@@ -105,7 +221,10 @@ class TaskClassifier:
             "recommend",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_suggestion(
         self,
@@ -119,7 +238,10 @@ class TaskClassifier:
             "best practices",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_memory(
         self,
@@ -132,7 +254,10 @@ class TaskClassifier:
             "memory",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_search(
         self,
@@ -146,7 +271,10 @@ class TaskClassifier:
             "google",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
     def _is_image(
         self,
@@ -161,7 +289,10 @@ class TaskClassifier:
             "logo",
         ]
 
-        return any(keyword in prompt for keyword in keywords)
+        return any(
+            keyword in prompt
+            for keyword in keywords
+        )
 
 
 task_classifier = TaskClassifier()
