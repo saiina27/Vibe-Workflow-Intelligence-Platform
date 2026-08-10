@@ -1,12 +1,7 @@
-from google import genai
-
 from app.ai.memory_parser import parse_memory
-from app.core.config import settings
 from app.ai.gateway import AIGateway
-
-client = genai.Client(
-    api_key=settings.gemini_api_key,
-)
+from app.schemas.ai import AIRequest
+from app.models.enums import TaskType, TaskComplexity
 
 
 def extract_memory(
@@ -16,39 +11,68 @@ def extract_memory(
     prompt = f"""
 You are an AI memory extraction engine.
 
-Extract exactly ONE useful memory.
+Extract exactly ONE useful long-term memory from the user's message.
 
 Return ONLY valid JSON.
 
-Example:
+Format:
 
 {{
-    "memory_type":"preference",
-    "title":"Preferred Backend",
-    "content":"User prefers FastAPI.",
-    "importance":5
+    "memory_type": "preference",
+    "title": "Preferred Programming Language",
+    "content": "User prefers Python.",
+    "importance": 5
 }}
+
+Allowed memory_type values:
+- preference
+- knowledge
+- fact
+- goal
+- project
+- decision
+- task
+- summary
+
+Rules:
+
+1. Ignore command words such as:
+   - remember this
+   - save this
+   - remember
+
+2. Extract only the actual information the user wants to save.
+
+3. Keep the content concise and factual.
 
 User Message:
 
 {text}
-
-Ignore command words like:
-- remember this
-- save this
-- remember
-
-Extract only the actual information the user wants to save.
 """
 
     try:
 
         gateway = AIGateway()
-        response = gateway.generate(prompt)
 
-        return parse_memory(response)
+        request = AIRequest(
+            prompt=prompt,
+            task_type=TaskType.CODE,
+            complexity=TaskComplexity.SIMPLE,
+        )
 
-    except Exception:
+        response = gateway.generate(
+            request
+        )
+
+        return parse_memory(
+            response.content
+        )
+
+    except Exception as e:
+
+        print(
+            f"Memory extraction failed: {e}"
+        )
 
         return {
             "memory_type": "knowledge",
@@ -56,6 +80,7 @@ Extract only the actual information the user wants to save.
             "content": text,
             "importance": 3,
         }
+
 
 def extract_memories(
     text: str,
@@ -73,15 +98,23 @@ Format:
 {{
     "memories": [
         {{
-            "memory_type": "goal",
-            "title": "Memory title",
-            "content": "Memory content",
+            "memory_type": "preference",
+            "title": "Preferred Programming Language",
+            "content": "User prefers Python.",
             "importance": 5
         }}
     ]
 }}
 
-Rules:
+Allowed memory_type values:
+- preference
+- knowledge
+- fact
+- goal
+- project
+- decision
+- task
+- summary
 
 Extract only:
 - goals
@@ -94,6 +127,7 @@ Extract only:
 Ignore:
 - greetings
 - temporary questions
+- normal questions
 - commands like remember/save this
 
 User Message:
@@ -105,15 +139,29 @@ User Message:
 
         gateway = AIGateway()
 
-        response = gateway.generate(prompt)
+        request = AIRequest(
+            prompt=prompt,
+            task_type=TaskType.CODE,
+            complexity=TaskComplexity.SIMPLE,
+        )
 
-        data = parse_memory(response)
+        response = gateway.generate(
+            request
+        )
+
+        data = parse_memory(
+            response.content
+        )
 
         return data.get(
             "memories",
             []
         )
 
-    except Exception:
+    except Exception as e:
 
-        return []    
+        print(
+            f"Automatic memory extraction failed: {e}"
+        )
+
+        return []

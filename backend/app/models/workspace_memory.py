@@ -26,6 +26,7 @@ class MemoryType(str, Enum):
     KNOWLEDGE = "knowledge"
     SUMMARY = "summary"
     WORKING = "working"
+    PROJECT = "project"
 
 
 class MemorySource(str, Enum):

@@ -16,6 +16,21 @@ class Chat(Base):
 
     title: Mapped[str] = mapped_column(
         String(200),
+        default="New Chat",
+    )
+
+    topic: Mapped[str | None] = mapped_column(
+        String(200),
+        nullable=True,
+    )
+
+    status: Mapped[str] = mapped_column(
+        String(20),
+        default="active",
+    )
+
+    message_count: Mapped[int] = mapped_column(
+        default=0,
     )
 
     workspace_id: Mapped[int] = mapped_column(
@@ -27,20 +42,31 @@ class Chat(Base):
         default=datetime.utcnow,
     )
 
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    last_message_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
     workspace = relationship(
         "Workspace",
         back_populates="chats",
     )
 
     messages = relationship(
-    "Message",
-    back_populates="chat",
-    cascade="all, delete",
+        "Message",
+        back_populates="chat",
+        cascade="all, delete",
     )
 
     summary = relationship(
-    "ConversationSummary",
-    back_populates="chat",
-    uselist=False,
-    cascade="all, delete"
+        "ConversationSummary",
+        back_populates="chat",
+        uselist=False,
+        cascade="all, delete",
     )

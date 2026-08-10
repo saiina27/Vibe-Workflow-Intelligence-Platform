@@ -75,3 +75,31 @@ class EmbeddingRepository:
         return list(
             db.scalars(statement).all()
         )
+
+    def update(
+        self,
+        db: Session,
+        memory_id: int,
+        embedding: list[float],
+        model: str,
+    ) -> WorkspaceMemoryEmbedding | None:
+
+        statement = select(
+            WorkspaceMemoryEmbedding
+        ).where(
+            WorkspaceMemoryEmbedding.memory_id == memory_id
+        )
+
+        db_embedding = db.scalar(statement)
+
+        if db_embedding is None:
+            return None
+
+        db_embedding.embedding = embedding
+        db_embedding.model = model
+        db_embedding.dimension = len(embedding)
+
+        db.commit()
+        db.refresh(db_embedding)
+
+        return db_embedding

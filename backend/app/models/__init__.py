@@ -5,3 +5,6 @@ from app.models.message import Message
 from app.models.workspace_memory import WorkspaceMemory
 from app.models.workspace_memory_embedding import WorkspaceMemoryEmbedding
 from app.models.conversation_summary import ConversationSummary
+
+from app.models.knowledge_source import KnowledgeSource
+from app.models.knowledge_chunk import KnowledgeChunk

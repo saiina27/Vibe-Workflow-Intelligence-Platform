@@ -53,3 +53,9 @@ class Workspace(Base):
     back_populates="workspace",
     cascade="all, delete",
     )
+
+    knowledge_sources = relationship(
+    "KnowledgeSource",
+    back_populates="workspace",
+    cascade="all, delete",
+)
