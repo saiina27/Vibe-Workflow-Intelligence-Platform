@@ -15,7 +15,7 @@ Extract exactly ONE useful long-term memory from the user's message.
 
 Return ONLY valid JSON.
 
-Format:
+Required format:
 
 {{
     "memory_type": "preference",
@@ -25,14 +25,16 @@ Format:
 }}
 
 Allowed memory_type values:
-- preference
-- knowledge
 - fact
+- preference
+- profile
 - goal
-- project
 - decision
 - task
+- knowledge
 - summary
+- working
+- project
 
 Rules:
 
@@ -44,6 +46,14 @@ Rules:
 2. Extract only the actual information the user wants to save.
 
 3. Keep the content concise and factual.
+
+4. Return exactly one memory object.
+
+5. Always include:
+   - memory_type
+   - title
+   - content
+   - importance
 
 User Message:
 
@@ -64,9 +74,107 @@ User Message:
             request
         )
 
-        return parse_memory(
+        parsed = parse_memory(
             response.content
         )
+
+        # ----------------------------------------------------
+        # NORMALIZE AI RESPONSE
+        # ----------------------------------------------------
+
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                "Memory extractor returned an invalid object."
+            )
+
+        # Support accidental {"memories": [...]} response.
+        if "memories" in parsed:
+
+            memories = parsed.get("memories")
+
+            if not memories:
+                raise ValueError(
+                    "Memory extractor returned no memory."
+                )
+
+            parsed = memories[0]
+
+        if not isinstance(parsed, dict):
+            raise ValueError(
+                "Extracted memory is not a valid object."
+            )
+
+        memory_type = str(
+            parsed.get(
+                "memory_type",
+                "knowledge",
+            )
+        ).strip().lower()
+
+        # ----------------------------------------------------
+        # NORMALIZE MEMORY TYPE
+        # ----------------------------------------------------
+
+        allowed_types = {
+            "fact",
+            "preference",
+            "profile",
+            "goal",
+            "decision",
+            "task",
+            "knowledge",
+            "summary",
+            "working",
+            "project",
+        }
+
+        if memory_type not in allowed_types:
+            memory_type = "knowledge"
+
+        title = str(
+            parsed.get(
+                "title",
+                "Memory",
+            )
+        ).strip()
+
+        content = str(
+            parsed.get(
+                "content",
+                text,
+            )
+        ).strip()
+
+        importance = parsed.get(
+            "importance",
+            5,
+        )
+
+        try:
+            importance = int(importance)
+        except (TypeError, ValueError):
+            importance = 5
+
+        importance = max(
+            1,
+            min(
+                importance,
+                10,
+            ),
+        )
+
+        if not title:
+            title = "Memory"
+
+        if not content:
+            content = text.strip()
+
+        return {
+            "memory_type": memory_type,
+            "title": title[:200],
+            "content": content,
+            "importance": importance,
+        }
 
     except Exception as e:
 
@@ -80,7 +188,6 @@ User Message:
             "content": text,
             "importance": 3,
         }
-
 
 def extract_memories(
     text: str,
@@ -107,14 +214,16 @@ Format:
 }}
 
 Allowed memory_type values:
-- preference
-- knowledge
 - fact
+- preference
+- profile
 - goal
-- project
 - decision
 - task
+- knowledge
 - summary
+- working
+- project
 
 Extract only:
 - goals

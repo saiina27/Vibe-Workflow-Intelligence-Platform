@@ -32,9 +32,10 @@ def create_new_chat(
     current_user=Depends(get_current_user),
 ):
     return create_chat(
-        db,
-        workspace_id,
-        request.title,
+        db=db,
+        workspace_id=workspace_id,
+        title=request.title,
+        user_id=current_user.id,
     )
 
 
@@ -67,6 +68,7 @@ def ask_chat(
         db=db,
         chat_id=chat_id,
         content=request.content,
+        user_id=current_user.id,
     )
 
     return {

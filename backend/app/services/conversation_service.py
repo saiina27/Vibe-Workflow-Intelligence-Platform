@@ -1,26 +1,26 @@
 import logging
+from fastapi import HTTPException
 
 from sqlalchemy.orm import Session
 
-from app.services.memory_cleanup_service import (
-    memory_cleanup_service,
-)
-
+from app.ai.chat_title_generator import ChatTitleGenerator
 from app.ai.conversation_formatter import format_conversation
 from app.ai.intent_detector import (
     Intent,
     detect_intent,
 )
+from app.ai.knowledge_retriever import KnowledgeRetriever
 from app.ai.memory_extractor import (
-    extract_memory,
     extract_memories,
+    extract_memory,
 )
 from app.ai.memory_retriever import MemoryRetriever
 from app.ai.prompt_builder import build_prompt
 from app.ai.summary_generator import generate_summary
-from app.ai.chat_title_generator import ChatTitleGenerator
 from app.ai.topic_detector import TopicDetector
-from app.ai.knowledge_retriever import KnowledgeRetriever
+from app.ai.tools.context import ToolContext
+
+from app.models.workspace import Workspace
 
 from app.repositories.chat_repository import ChatRepository
 from app.repositories.memory_repository import MemoryRepository
@@ -29,11 +29,17 @@ from app.repositories.message_repository import (
     get_messages_for_ai,
 )
 
-from app.services.ai_service import generate_ai_response
-from app.services.summary_service import summary_service
+from app.services.ai_service import (
+    generate_ai_response_with_tools,
+)
+from app.services.memory_cleanup_service import (
+    memory_cleanup_service,
+)
 from app.services.memory_decision_service import (
     MemoryDecisionService,
 )
+from app.services.summary_service import summary_service
+from app.schemas.workspace_memory import MemoryCreate
 
 
 # ============================================================
@@ -60,7 +66,7 @@ knowledge_retriever = KnowledgeRetriever()
 # DEBUG HELPERS
 # ============================================================
 
-def debug_separator(title: str):
+def debug_separator(title: str) -> None:
     logger.info("")
     logger.info("=" * 70)
     logger.info(title)
@@ -84,6 +90,81 @@ def debug_preview(
 
 
 # ============================================================
+# CHAT ACCESS VALIDATION
+# ============================================================
+
+def _get_authorized_chat(
+    db: Session,
+    chat_id: int,
+    user_id: int,
+):
+    """
+    Load a chat and verify that its workspace belongs
+    to the authenticated user.
+
+    IMPORTANT:
+    This validation happens before:
+        - user message persistence
+        - memory retrieval
+        - RAG retrieval
+        - tool context creation
+        - tool execution
+        - AI generation
+    """
+
+    chat = chat_repository.get_by_id(
+        db=db,
+        chat_id=chat_id,
+    )
+
+    if chat is None:
+
+        logger.error(
+            "Chat not found. Chat ID: %s",
+            chat_id,
+        )
+
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found",
+        )
+
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.id == chat.workspace_id,
+            Workspace.user_id == user_id,
+        )
+        .first()
+    )
+
+    if workspace is None:
+
+        logger.error(
+            "Workspace ownership validation failed. "
+            "User ID: %s, Workspace ID: %s",
+            user_id,
+            chat.workspace_id,
+        )
+
+        # Do not reveal whether the chat exists
+        # when it belongs to another user's workspace.
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found",
+        )
+
+    logger.info(
+        "Workspace ownership validated. "
+        "User ID: %s, Workspace ID: %s",
+        user_id,
+        chat.workspace_id,
+    )
+
+    return chat
+
+
+# ============================================================
 # ASK AI
 # ============================================================
 
@@ -91,22 +172,101 @@ def ask_ai(
     db: Session,
     chat_id: int,
     content: str,
+    user_id: int,
 ) -> str:
 
     debug_separator("ASK AI START")
 
-    logger.info("Chat ID: %s", chat_id)
+    logger.info(
+        "Chat ID: %s",
+        chat_id,
+    )
+
+    logger.info(
+        "User ID: %s",
+        user_id,
+    )
+
     logger.info(
         "User message: %s",
         debug_preview(content),
     )
+
     logger.info(
         "User message length: %s",
         len(content),
     )
 
     # ========================================================
-    # MEMORY CLEANUP
+    # 1. CHAT ACCESS VALIDATION
+    # ========================================================
+
+    debug_separator("CHAT ACCESS VALIDATION")
+
+    try:
+
+        chat = _get_authorized_chat(
+            db=db,
+            chat_id=chat_id,
+            user_id=user_id,
+        )
+
+        logger.info(
+            "Chat access validated successfully."
+        )
+
+        logger.info(
+            "Workspace ID: %s",
+            chat.workspace_id,
+        )
+
+        logger.info(
+            "Chat title: %s",
+            chat.title,
+        )
+
+        logger.info(
+            "Chat topic: %s",
+            chat.topic,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Chat access validation failed."
+        )
+
+        raise
+
+    # ========================================================
+    # 2. REQUEST-SCOPED TOOL CONTEXT
+    # ========================================================
+
+    debug_separator("TOOL CONTEXT")
+
+    tool_context = ToolContext(
+        db=db,
+        workspace_id=chat.workspace_id,
+        user_id=user_id,
+        
+    )
+
+    logger.info(
+        "Request-scoped ToolContext created."
+    )
+
+    logger.info(
+        "Tool workspace ID: %s",
+        tool_context.workspace_id,
+    )
+
+    logger.info(
+        "Tool user ID: %s",
+        tool_context.user_id,
+    )
+
+    # ========================================================
+    # 3. MEMORY CLEANUP
     # ========================================================
 
     try:
@@ -115,7 +275,9 @@ def ask_ai(
             "[1] Starting memory cleanup..."
         )
 
-        memory_cleanup_service.expire_memories(db)
+        memory_cleanup_service.expire_memories(
+            db
+        )
 
         logger.info(
             "[1] Memory cleanup completed."
@@ -124,11 +286,12 @@ def ask_ai(
     except Exception:
 
         logger.exception(
-            "[1] Memory cleanup failed."
+            "[1] Memory cleanup failed. "
+            "Continuing request."
         )
 
     # ========================================================
-    # DETECT USER INTENT
+    # 4. INTENT DETECTION
     # ========================================================
 
     try:
@@ -153,7 +316,7 @@ def ask_ai(
         raise
 
     # ========================================================
-    # REMEMBER INTENT
+    # 5. REMEMBER INTENT
     # ========================================================
 
     if intent == Intent.REMEMBER:
@@ -163,50 +326,41 @@ def ask_ai(
         try:
 
             logger.info(
-                "Loading chat for memory creation..."
+                "Extracting explicit memory..."
             )
 
-            chat = chat_repository.get_by_id(
-                db=db,
-                chat_id=chat_id,
+            memory_data = extract_memory(
+                content
             )
-
-            if chat is None:
-
-                logger.error(
-                    "Chat not found. Chat ID: %s",
-                    chat_id,
-                )
-
-                raise ValueError("Chat not found")
-
-            logger.info(
-                "Chat found. Workspace ID: %s",
-                chat.workspace_id,
-            )
-
-            logger.info(
-                "Extracting memory..."
-            )
-
-            memory_data = extract_memory(content)
 
             logger.info(
                 "Extracted memory: %s",
                 memory_data,
             )
 
-            memory_repository.create_ai_memory(
+            memory = MemoryCreate(
+                memory_type=memory_data["memory_type"],
+                title=memory_data["title"],
+                content=memory_data["content"],
+                importance=memory_data.get(
+                    "importance",
+                    5,
+                ),
+            )
+
+            memory_decision_service.process_memory(
                 db=db,
                 workspace_id=chat.workspace_id,
-                memory_data=memory_data,
+                memory=memory,
             )
 
             logger.info(
-                "Memory saved successfully."
+                "Explicit memory saved successfully."
             )
 
-            return "🧠 Memory has been saved successfully."
+            return (
+                "🧠 Memory has been saved successfully."
+            )
 
         except Exception:
 
@@ -217,7 +371,7 @@ def ask_ai(
             raise
 
     # ========================================================
-    # SAVE SUMMARY INTENT
+    # 6. SAVE SUMMARY INTENT
     # ========================================================
 
     if intent == Intent.SAVE_SUMMARY:
@@ -225,29 +379,6 @@ def ask_ai(
         debug_separator("SAVE SUMMARY INTENT")
 
         try:
-
-            logger.info(
-                "Loading chat..."
-            )
-
-            chat = chat_repository.get_by_id(
-                db=db,
-                chat_id=chat_id,
-            )
-
-            if chat is None:
-
-                logger.error(
-                    "Chat not found. Chat ID: %s",
-                    chat_id,
-                )
-
-                raise ValueError("Chat not found")
-
-            logger.info(
-                "Workspace ID: %s",
-                chat.workspace_id,
-            )
 
             logger.info(
                 "Loading conversation history..."
@@ -264,7 +395,7 @@ def ask_ai(
             )
 
             conversation = format_conversation(
-                history,
+                history
             )
 
             logger.info(
@@ -277,12 +408,15 @@ def ask_ai(
             )
 
             summary = generate_summary(
-                conversation,
+                conversation
             )
 
             logger.info(
                 "Generated summary:\n%s",
-                debug_preview(summary, 1500),
+                debug_preview(
+                    summary,
+                    1500,
+                ),
             )
 
             memory_repository.create_summary(
@@ -303,22 +437,18 @@ def ask_ai(
         except Exception:
 
             logger.exception(
-                "SAVE_SUMMARY intent failed."
+                "SAVE SUMMARY intent failed."
             )
 
             raise
 
     # ========================================================
-    # SAVE USER MESSAGE
+    # 7. SAVE USER MESSAGE
     # ========================================================
 
     debug_separator("SAVE USER MESSAGE")
 
     try:
-
-        logger.info(
-            "Saving user message..."
-        )
 
         create_message(
             db=db,
@@ -340,60 +470,7 @@ def ask_ai(
         raise
 
     # ========================================================
-    # LOAD CHAT
-    # ========================================================
-
-    debug_separator("LOAD CHAT")
-
-    try:
-
-        logger.info(
-            "Loading chat ID: %s",
-            chat_id,
-        )
-
-        chat = chat_repository.get_by_id(
-            db=db,
-            chat_id=chat_id,
-        )
-
-        if chat is None:
-
-            logger.error(
-                "Chat not found."
-            )
-
-            raise ValueError("Chat not found")
-
-        logger.info(
-            "Chat loaded successfully."
-        )
-
-        logger.info(
-            "Workspace ID: %s",
-            chat.workspace_id,
-        )
-
-        logger.info(
-            "Chat title: %s",
-            chat.title,
-        )
-
-        logger.info(
-            "Chat topic: %s",
-            chat.topic,
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Failed to load chat."
-        )
-
-        raise
-
-    # ========================================================
-    # AUTOMATIC CHAT TITLE
+    # 8. AUTOMATIC CHAT TITLE
     # ========================================================
 
     if chat.title == "New Chat":
@@ -402,12 +479,10 @@ def ask_ai(
 
         try:
 
-            logger.info(
-                "Generating automatic chat title..."
-            )
-
-            generated_title = chat_title_generator.generate(
-                conversation=f"User: {content}"
+            generated_title = (
+                chat_title_generator.generate(
+                    conversation=f"User: {content}"
+                )
             )
 
             logger.info(
@@ -447,7 +522,7 @@ def ask_ai(
         )
 
     # ========================================================
-    # AUTOMATIC CHAT TOPIC
+    # 9. AUTOMATIC CHAT TOPIC
     # ========================================================
 
     if chat.topic is None:
@@ -455,10 +530,6 @@ def ask_ai(
         debug_separator("AUTOMATIC CHAT TOPIC")
 
         try:
-
-            logger.info(
-                "Detecting chat topic..."
-            )
 
             detected_topic = topic_detector.detect(
                 message=content,
@@ -486,6 +557,13 @@ def ask_ai(
 
             db.rollback()
 
+            # Re-fetch the authorized chat after rollback.
+            chat = _get_authorized_chat(
+                db=db,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+
     else:
 
         logger.info(
@@ -494,16 +572,12 @@ def ask_ai(
         )
 
     # ========================================================
-    # RETRIEVE RELEVANT MEMORIES
+    # 10. MEMORY RETRIEVAL
     # ========================================================
 
     debug_separator("MEMORY RETRIEVAL")
 
     try:
-
-        logger.info(
-            "Retrieving relevant memories..."
-        )
 
         memories = memory_retriever.retrieve(
             db=db,
@@ -525,9 +599,17 @@ def ask_ai(
             logger.info(
                 "Memory %s | title=%s | content=%s",
                 index,
-                getattr(memory, "title", None),
+                getattr(
+                    memory,
+                    "title",
+                    None,
+                ),
                 debug_preview(
-                    getattr(memory, "content", None),
+                    getattr(
+                        memory,
+                        "content",
+                        None,
+                    ),
                     300,
                 ),
             )
@@ -541,16 +623,12 @@ def ask_ai(
         memories = []
 
     # ========================================================
-    # RAG KNOWLEDGE RETRIEVAL
+    # 11. RAG KNOWLEDGE RETRIEVAL
     # ========================================================
 
     debug_separator("RAG KNOWLEDGE RETRIEVAL")
 
     try:
-
-        logger.info(
-            "Retrieving knowledge chunks..."
-        )
 
         logger.info(
             "Workspace ID: %s",
@@ -562,11 +640,13 @@ def ask_ai(
             debug_preview(content),
         )
 
-        knowledge_chunks = knowledge_retriever.retrieve(
-            db=db,
-            workspace_id=chat.workspace_id,
-            query=content,
-            limit=5,
+        knowledge_chunks = (
+            knowledge_retriever.retrieve(
+                db=db,
+                workspace_id=chat.workspace_id,
+                query=content,
+                limit=5,
+            )
         )
 
         logger.info(
@@ -588,9 +668,17 @@ def ask_ai(
             logger.info(
                 "Chunk %s | DB index=%s | text=%s",
                 index,
-                getattr(chunk, "chunk_index", None),
+                getattr(
+                    chunk,
+                    "chunk_index",
+                    None,
+                ),
                 debug_preview(
-                    getattr(chunk, "text", None),
+                    getattr(
+                        chunk,
+                        "text",
+                        None,
+                    ),
                     500,
                 ),
             )
@@ -604,16 +692,12 @@ def ask_ai(
         knowledge_chunks = []
 
     # ========================================================
-    # LOAD CHAT HISTORY
+    # 12. LOAD CHAT HISTORY
     # ========================================================
 
     debug_separator("CHAT HISTORY")
 
     try:
-
-        logger.info(
-            "Loading chat history..."
-        )
 
         history = get_messages_for_ai(
             db=db,
@@ -648,7 +732,7 @@ def ask_ai(
         raise
 
     # ========================================================
-    # AUTOMATIC CONVERSATION SUMMARY
+    # 13. LOAD CONVERSATION SUMMARY
     # ========================================================
 
     debug_separator("CONVERSATION SUMMARY")
@@ -662,9 +746,11 @@ def ask_ai(
 
     try:
 
-        conversation_summary = summary_service.get_summary(
-            db=db,
-            chat_id=chat_id,
+        conversation_summary = (
+            summary_service.get_summary(
+                db=db,
+                chat_id=chat_id,
+            )
         )
 
         if conversation_summary:
@@ -708,7 +794,7 @@ def ask_ai(
         last_summary_count = None
 
     # ========================================================
-    # SUMMARY DECISION
+    # 14. SUMMARY DECISION
     # ========================================================
 
     try:
@@ -734,7 +820,7 @@ def ask_ai(
         should_generate_summary = False
 
     # ========================================================
-    # GENERATE SUMMARY
+    # 15. GENERATE SUMMARY
     # ========================================================
 
     if should_generate_summary:
@@ -743,12 +829,8 @@ def ask_ai(
 
         try:
 
-            logger.info(
-                "Formatting conversation..."
-            )
-
             conversation = format_conversation(
-                history,
+                history
             )
 
             logger.info(
@@ -756,21 +838,16 @@ def ask_ai(
                 len(conversation),
             )
 
-            logger.info(
-                "Calling generate_summary()..."
-            )
-
             summary = generate_summary(
-                conversation,
-            )
-
-            logger.info(
-                "Summary generation completed."
+                conversation
             )
 
             logger.info(
                 "Generated summary:\n%s",
-                debug_preview(summary, 1500),
+                debug_preview(
+                    summary,
+                    1500,
+                ),
             )
 
             if not summary:
@@ -778,10 +855,6 @@ def ask_ai(
                 logger.warning(
                     "Summary generator returned EMPTY result."
                 )
-
-            logger.info(
-                "Saving summary..."
-            )
 
             summary_service.save_summary(
                 db=db,
@@ -801,11 +874,6 @@ def ask_ai(
                 )
             )
 
-            logger.info(
-                "Summary reloaded from database: %s",
-                conversation_summary is not None,
-            )
-
         except Exception:
 
             logger.exception(
@@ -822,38 +890,20 @@ def ask_ai(
         )
 
     # ========================================================
-    # BUILD PROMPT
+    # 16. BUILD PROMPT
     # ========================================================
 
     debug_separator("PROMPT BUILDING")
 
     try:
 
-        logger.info(
-            "Memories: %s",
-            len(memories),
-        )
-
-        logger.info(
-            "Knowledge chunks: %s",
-            len(knowledge_chunks),
-        )
-
-        logger.info(
-            "History messages: %s",
-            len(history),
-        )
-
-        logger.info(
-            "Summary available: %s",
-            conversation_summary is not None,
-        )
-
         prompt = build_prompt(
             memories=memories,
             conversation_summary=conversation_summary,
             history=history,
             knowledge_chunks=knowledge_chunks,
+            include_memories=False,
+            include_knowledge=False,
         )
 
         logger.info(
@@ -867,7 +917,10 @@ def ask_ai(
 
         logger.info(
             "FINAL PROMPT PREVIEW:\n%s",
-            debug_preview(prompt, 3000),
+            debug_preview(
+                prompt,
+                3000,
+            ),
         )
 
     except Exception:
@@ -879,20 +932,41 @@ def ask_ai(
         raise
 
     # ========================================================
-    # GENERATE AI RESPONSE
+    # 17. GENERATE AI RESPONSE WITH TOOLS
     # ========================================================
 
-    debug_separator("AI RESPONSE GENERATION")
+    debug_separator("AI RESPONSE + TOOL CALLING")
 
     try:
 
         logger.info(
-            "Calling generate_ai_response()..."
+            "Calling generate_ai_response_with_tools()..."
         )
 
-        ai_reply = generate_ai_response(
-            prompt,
+        logger.info(
+            "Tool context workspace ID: %s",
+            tool_context.workspace_id,
         )
+
+        logger.info(
+            "Tool context user ID: %s",
+            tool_context.user_id,
+        )
+
+        ai_reply = (
+            generate_ai_response_with_tools(
+                prompt=prompt,
+                context=tool_context,
+            )
+        )
+
+        if ai_reply is None:
+
+            raise ValueError(
+                "AI gateway returned an empty response."
+            )
+
+        ai_reply = str(ai_reply)
 
         logger.info(
             "AI response generated successfully."
@@ -904,8 +978,11 @@ def ask_ai(
         )
 
         logger.info(
-            "RAG FINAL AI RESPONSE:\n%s",
-            debug_preview(ai_reply, 2000),
+            "FINAL AI RESPONSE:\n%s",
+            debug_preview(
+                ai_reply,
+                2000,
+            ),
         )
 
     except Exception:
@@ -917,16 +994,12 @@ def ask_ai(
         raise
 
     # ========================================================
-    # SAVE ASSISTANT RESPONSE
+    # 18. SAVE ASSISTANT RESPONSE
     # ========================================================
 
     debug_separator("SAVE ASSISTANT RESPONSE")
 
     try:
-
-        logger.info(
-            "Saving assistant response..."
-        )
 
         create_message(
             db=db,
@@ -948,7 +1021,7 @@ def ask_ai(
         raise
 
     # ========================================================
-    # AUTOMATIC MEMORY EXTRACTION
+    # 19. AUTOMATIC MEMORY EXTRACTION
     # ========================================================
 
     debug_separator("AUTOMATIC MEMORY EXTRACTION")
@@ -969,10 +1042,6 @@ def ask_ai(
         )
 
         if extracted_memories:
-
-            logger.info(
-                "Processing extracted memories..."
-            )
 
             memory_decision_service.process_memories(
                 db=db,
@@ -996,11 +1065,11 @@ def ask_ai(
             "Automatic memory extraction failed."
         )
 
-        # Memory extraction should not break
-        # the main AI response.
+        # Memory extraction must never break
+        # an otherwise successful AI response.
 
     # ========================================================
-    # COMPLETE
+    # 20. COMPLETE
     # ========================================================
 
     debug_separator("ASK AI COMPLETE")
@@ -1012,7 +1081,10 @@ def ask_ai(
 
     logger.info(
         "Final AI reply:\n%s",
-        debug_preview(ai_reply, 2000),
+        debug_preview(
+            ai_reply,
+            2000,
+        ),
     )
 
     return ai_reply

@@ -28,6 +28,7 @@ def create_message(
         db=db,
         chat_id=chat_id,
         content=request.content,
+        user_id=current_user.id,
     )
 
     messages = get_chat_messages(
@@ -36,7 +37,6 @@ def create_message(
     )
 
     return messages[-1]
-
 
 @router.get(
     "",

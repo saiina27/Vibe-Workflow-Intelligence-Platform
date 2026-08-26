@@ -11,7 +11,26 @@ def create_chat(
     db: Session,
     workspace_id: int,
     title: str | None = None,
+    user_id: int | None = None,
 ):
+    if user_id is not None:
+        from app.models.workspace import Workspace
+
+        workspace = (
+            db.query(Workspace)
+            .filter(
+                Workspace.id == workspace_id,
+                Workspace.user_id == user_id,
+            )
+            .first()
+        )
+
+        if workspace is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Workspace not found",
+            )
+
     chat = Chat(
         title=title or "New Chat",
         workspace_id=workspace_id,

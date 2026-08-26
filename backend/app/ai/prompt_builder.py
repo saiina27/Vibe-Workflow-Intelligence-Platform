@@ -9,43 +9,83 @@ def build_prompt(
     conversation_summary: ConversationSummary | None,
     history: list[Message],
     knowledge_chunks: list[KnowledgeChunk] | None = None,
+    include_memories=True,
+    include_knowledge=True,
 ) -> str:
 
     prompt = ""
 
-    # -------------------------
-    # System Context
-    # -------------------------
+    # ========================================================
+    # SYSTEM CONTEXT
+    # ========================================================
 
     prompt += """
 You are Vibe AI, an intelligent workspace assistant.
 
-Use workspace memories only when they are relevant
-to the user's current request.
+You have access to three different information sources:
 
-Use uploaded knowledge only when it is relevant
-to the user's current request.
+1. WORKSPACE MEMORY
+   - Contains user-specific remembered information.
+   - Use it for the user's preferences, goals, projects,
+     decisions, tasks, or other persistent workspace context.
 
-Answer questions using ONLY the retrieved
-knowledge chunks whenever they are available.
+2. UPLOADED KNOWLEDGE
+   - Contains information from documents uploaded to the
+     current workspace.
+   - Use it when the user's question is about information
+     contained in those documents.
 
-Each knowledge chunk contains its source
-document information.
+3. WEB SEARCH
+   - Searches the public internet.
+   - Use it for current, latest, recent, external, or
+     time-sensitive information.
+   - Use it when the answer may have changed since the
+     uploaded documents or workspace memory were created.
 
-Never invent or assume facts that are not
-present in the retrieved knowledge.
+IMPORTANT TOOL SELECTION RULES:
 
-If the answer is not contained in the
-retrieved knowledge, clearly state that
-it could not be found in the uploaded
-documents.
+- If the user asks for "latest", "current", "recent",
+  "today", "new", "updated", or similar time-sensitive
+  information about an external topic, prefer WEB SEARCH.
+
+- If the user asks about their own remembered information,
+  preferences, goals, projects, or decisions, use WORKSPACE
+  MEMORY.
+
+- If the user asks about information contained in uploaded
+  documents, use UPLOADED KNOWLEDGE.
+
+- If the user's question requires current public information,
+  do NOT rely only on uploaded knowledge or workspace memory.
+  Use WEB SEARCH even if retrieved knowledge chunks are present.
+
+- Retrieved knowledge chunks are supporting context. They are
+  NOT automatically authoritative for every user question.
+
+- Choose the information source that best matches the user's
+  actual question.
+
+- Never claim that information is unavailable merely because
+  one information source did not contain it. If another
+  appropriate tool is available, use that tool.
+
+- Never invent facts.
+
+- When web search is used, use its returned information to
+  answer the user's question.
+
+- When uploaded knowledge is used, stay grounded in the
+  retrieved document content.
+
+- When workspace memory is used, stay grounded in the
+  retrieved memory content.
 """
 
-    # -------------------------
-    # Workspace Memory
-    # -------------------------
+    # ========================================================
+    # WORKSPACE MEMORY
+    # ========================================================
 
-    if memories:
+    if include_memories and memories:
 
         prompt += (
             "\n=========================\n"
@@ -61,11 +101,11 @@ documents.
                 f"Information: {memory.content}\n\n"
             )
 
-    # -------------------------
-    # Uploaded Knowledge
-    # -------------------------
+    # ========================================================
+    # UPLOADED KNOWLEDGE
+    # ========================================================
 
-    if knowledge_chunks:
+    if include_knowledge and knowledge_chunks:
 
         prompt += (
             "\n=========================\n"
@@ -77,17 +117,29 @@ documents.
 
             source = chunk.knowledge_source
 
+            source_filename = (
+                source.filename
+                if source is not None
+                else "Unknown source"
+            )
+
+            source_title = (
+                source.title
+                if source is not None
+                else "Unknown title"
+            )
+
             prompt += (
-                f"Source: {source.filename}\n"
-                f"Title: {source.title}\n"
+                f"Source: {source_filename}\n"
+                f"Title: {source_title}\n"
                 f"Chunk: {chunk.chunk_index}\n\n"
                 f"{chunk.text}\n\n"
                 "-----------------------------\n\n"
             )
 
-    # -------------------------
-    # Conversation Summary
-    # -------------------------
+    # ========================================================
+    # CONVERSATION SUMMARY
+    # ========================================================
 
     if conversation_summary:
 
@@ -101,9 +153,9 @@ documents.
             f"{conversation_summary.summary}\n\n"
         )
 
-    # -------------------------
-    # Conversation History
-    # -------------------------
+    # ========================================================
+    # CURRENT CONVERSATION
+    # ========================================================
 
     prompt += (
         "=========================\n"
@@ -119,6 +171,26 @@ documents.
             f"{role}: {message.content}\n"
         )
 
-    prompt += "\nAssistant:"
+    # ========================================================
+    # FINAL INSTRUCTION
+    # ========================================================
+
+    prompt += """
+=========================
+RESPONSE INSTRUCTION
+=========================
+
+Determine what information source is appropriate for the
+user's request before answering.
+
+If the request asks for current/latest/recent public
+information, use WEB SEARCH rather than relying only on
+workspace memory or uploaded knowledge.
+
+If a tool is needed, use the appropriate tool first and then
+answer using its result.
+
+Assistant:
+"""
 
     return prompt

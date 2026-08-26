@@ -17,25 +17,30 @@ class ConversationSummary(Base):
     chat_id: Mapped[int] = mapped_column(
         ForeignKey("chats.id"),
         unique=True,
+        nullable=False,
     )
 
     summary: Mapped[str] = mapped_column(
         Text,
+        nullable=False,
     )
 
     message_count: Mapped[int] = mapped_column(
         default=0,
+        nullable=False,
     )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
+        nullable=False,
     )
 
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
         onupdate=datetime.utcnow,
+        nullable=False,
     )
 
     chat = relationship(

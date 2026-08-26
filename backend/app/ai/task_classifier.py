@@ -8,7 +8,11 @@ class TaskClassifier:
         prompt: str,
     ) -> TaskType:
 
-        prompt = prompt.lower()
+        prompt = prompt.lower().strip()
+
+        # ====================================================
+        # TASK PRIORITY
+        # ====================================================
 
         if self._is_code(prompt):
             return TaskType.CODE
@@ -36,12 +40,16 @@ class TaskClassifier:
 
         return TaskType.CHAT
 
+    # ========================================================
+    # COMPLEXITY
+    # ========================================================
+
     def classify_complexity(
         self,
         prompt: str,
     ) -> TaskComplexity:
 
-        prompt = prompt.lower()
+        prompt = prompt.lower().strip()
 
         if self._is_complex(prompt):
             return TaskComplexity.COMPLEX
@@ -50,6 +58,10 @@ class TaskClassifier:
             return TaskComplexity.MODERATE
 
         return TaskComplexity.SIMPLE
+
+    # ========================================================
+    # COMPLEX TASK
+    # ========================================================
 
     def _is_complex(
         self,
@@ -77,6 +89,10 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # MODERATE TASK
+    # ========================================================
+
     def _is_moderate(
         self,
         prompt: str,
@@ -100,11 +116,16 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # CODE TASK
+    # ========================================================
+
     def _is_code(
         self,
         prompt: str,
     ) -> bool:
 
+        # These indicate an actual programming request.
         code_keywords = [
             "code",
             "function",
@@ -123,6 +144,23 @@ class TaskClassifier:
             "compile",
         ]
 
+        if any(
+            keyword in prompt
+            for keyword in code_keywords
+        ):
+            return True
+
+        # A programming language alone does NOT mean
+        # the user is asking for code.
+        #
+        # Example:
+        # "What are the latest features of Python 3.14?"
+        # => SEARCH
+        #
+        # Example:
+        # "Write a Python function to sort a list."
+        # => CODE
+
         language_keywords = [
             "python",
             "java",
@@ -132,16 +170,6 @@ class TaskClassifier:
             "fastapi",
             "sql",
         ]
-
-        has_code_keyword = any(
-            keyword in prompt
-            for keyword in code_keywords
-        )
-
-        has_language_keyword = any(
-            keyword in prompt
-            for keyword in language_keywords
-        )
 
         code_actions = [
             "write",
@@ -155,18 +183,24 @@ class TaskClassifier:
             "run",
         ]
 
+        has_language = any(
+            language in prompt
+            for language in language_keywords
+        )
+
         has_code_action = any(
             action in prompt
             for action in code_actions
         )
 
         return (
-            has_code_keyword
-            or (
-                has_language_keyword
-                and has_code_action
-            )
+            has_language
+            and has_code_action
         )
+
+    # ========================================================
+    # DOCUMENT TASK
+    # ========================================================
 
     def _is_document(
         self,
@@ -190,6 +224,10 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # ANALYSIS TASK
+    # ========================================================
+
     def _is_analysis(
         self,
         prompt: str,
@@ -207,6 +245,10 @@ class TaskClassifier:
             keyword in prompt
             for keyword in keywords
         )
+
+    # ========================================================
+    # DECISION TASK
+    # ========================================================
 
     def _is_decision(
         self,
@@ -226,6 +268,10 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # SUGGESTION TASK
+    # ========================================================
+
     def _is_suggestion(
         self,
         prompt: str,
@@ -243,6 +289,10 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # MEMORY TASK
+    # ========================================================
+
     def _is_memory(
         self,
         prompt: str,
@@ -259,22 +309,53 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+    # ========================================================
+    # SEARCH TASK
+    # ========================================================
+
     def _is_search(
         self,
         prompt: str,
     ) -> bool:
 
         keywords = [
+            # Current / latest information
+            "latest",
+            "current",
+            "recent",
+            "newest",
+            "updated",
+            "up-to-date",
+            "today",
+            "recently",
+
+            # Search / lookup intent
             "search",
-            "find",
-            "lookup",
-            "google",
+            "look up",
+            "find information",
+            "find out",
+
+            # Release / version information
+            "release",
+            "released",
+            "version",
+            "features",
+            "what's new",
+            "whats new",
+
+            # Public information
+            "news",
+            "current events",
         ]
 
         return any(
             keyword in prompt
             for keyword in keywords
         )
+
+    # ========================================================
+    # IMAGE TASK
+    # ========================================================
 
     def _is_image(
         self,
@@ -283,10 +364,12 @@ class TaskClassifier:
 
         keywords = [
             "image",
-            "photo",
             "picture",
+            "photo",
+            "illustration",
             "draw",
-            "logo",
+            "generate an image",
+            "create an image",
         ]
 
         return any(
@@ -294,5 +377,9 @@ class TaskClassifier:
             for keyword in keywords
         )
 
+
+# ============================================================
+# GLOBAL CLASSIFIER INSTANCE
+# ============================================================
 
 task_classifier = TaskClassifier()

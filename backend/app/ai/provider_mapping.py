@@ -12,19 +12,36 @@ def get_provider_for_task(
         TaskType.DECISION,
     }
 
-    # Simple tasks use Gemini.
+    # ========================================================
+    # SIMPLE TECHNICAL TASKS
+    # ========================================================
+    # Tool-calling / technical tasks should use Groq
+    # so Gemini free-tier quota is not consumed by
+    # the tool round-trip.
     if complexity == TaskComplexity.SIMPLE:
-        return "gemini"
 
-    # Moderate technical tasks use Groq.
-    if complexity == TaskComplexity.MODERATE:
         if task_type in technical_tasks:
             return "groq"
 
         return "gemini"
 
-    # Complex technical tasks use Groq.
+    # ========================================================
+    # MODERATE TECHNICAL TASKS
+    # ========================================================
+
+    if complexity == TaskComplexity.MODERATE:
+
+        if task_type in technical_tasks:
+            return "groq"
+
+        return "gemini"
+
+    # ========================================================
+    # COMPLEX TECHNICAL TASKS
+    # ========================================================
+
     if complexity == TaskComplexity.COMPLEX:
+
         if task_type in technical_tasks:
             return "groq"
 

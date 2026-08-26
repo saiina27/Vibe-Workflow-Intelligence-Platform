@@ -1,5 +1,6 @@
 from app.ai.gateway import AIGateway
 from app.ai.task_classifier import task_classifier
+from app.ai.tools.context import ToolContext
 from app.schemas.ai import AIRequest
 
 
@@ -29,3 +30,30 @@ def generate_ai_response(
     )
 
     return response.content
+
+
+def generate_ai_response_with_tools(
+    prompt: str,
+    context: ToolContext,
+) -> str:
+
+    task_type = task_classifier.classify(
+        prompt
+    )
+
+    complexity = task_classifier.classify_complexity(
+        prompt
+    )
+
+    request = AIRequest(
+        prompt=prompt,
+        task_type=task_type,
+        complexity=complexity,
+    )
+
+    response = gateway.generate_with_tools(
+        request=request,
+        context=context,
+    )
+
+    return response.content or ""

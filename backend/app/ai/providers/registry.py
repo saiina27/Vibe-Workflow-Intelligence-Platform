@@ -13,17 +13,21 @@ class ProviderRegistry:
 
         if settings.groq_api_key:
 
-            self.providers["groq"] = GroqProvider()
-
+            self.providers["groq"] = (
+                GroqProvider()
+            )
 
     def get_provider(
         self,
         name: str,
     ):
 
-        provider = self.providers.get(name)
+        provider = self.providers.get(
+            name
+        )
 
         if provider is None:
+
             raise ValueError(
                 f"Provider '{name}' not found"
             )
