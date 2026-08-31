@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.dependencies.database import get_db
 from app.schemas.chat import ChatCreate, ChatResponse
-from app.services.auth_service import get_current_user
+from app.dependencies.auth import get_current_user
 from app.services.chat_service import (
     create_chat,
     get_workspace_chats,
@@ -49,8 +49,9 @@ def list_chats(
     current_user=Depends(get_current_user),
 ):
     return get_workspace_chats(
-        db,
-        workspace_id,
+        db=db,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
     )
 
 @router.post(
@@ -89,6 +90,7 @@ def archive_workspace_chat(
         db=db,
         workspace_id=workspace_id,
         chat_id=chat_id,
+        user_id=current_user.id,
     )
 
 @router.patch(
@@ -105,6 +107,7 @@ def restore_workspace_chat(
         db=db,
         workspace_id=workspace_id,
         chat_id=chat_id,
+        user_id=current_user.id,
     )
 
 @router.get(
@@ -121,6 +124,7 @@ def chats_by_topic(
         db,
         workspace_id,
         topic,
+        current_user.id,
     )
 
 @router.get(
@@ -137,4 +141,5 @@ def chats_by_status(
         db,
         workspace_id,
         status,
+        current_user.id,
     )

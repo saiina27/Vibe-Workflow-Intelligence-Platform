@@ -7,9 +7,14 @@ from app.db.base import Base
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True,
+        index=True,
+    )
 
-    full_name: Mapped[str] = mapped_column(String(100))
+    full_name: Mapped[str] = mapped_column(
+        String(100),
+    )
 
     email: Mapped[str] = mapped_column(
         String(255),
@@ -17,10 +22,18 @@ class User(Base):
         index=True,
     )
 
-    hashed_password: Mapped[str] = mapped_column(String(255))
+    hashed_password: Mapped[str] = mapped_column(
+        String(255),
+    )
 
     workspaces = relationship(
-    "Workspace",
-    back_populates="user",
-    cascade="all, delete-orphan",
-)
+        "Workspace",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+
+    external_integrations = relationship(
+        "ExternalIntegration",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )

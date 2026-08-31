@@ -16,11 +16,17 @@ class ToolContext:
     workspace_id: int
     user_id: int
 
-    # Application-controlled tool allow-list.
+    # Application-controlled request-level restriction.
     #
-    # None means all currently registered tools are allowed.
-    # An explicit set means only those tool names are allowed.
+    # None means no additional request restriction.
     allowed_tools: frozenset[str] | None = field(
+        default=None
+    )
+
+    # Optional request-level MCP plugin restriction.
+    #
+    # None means no additional plugin restriction.
+    allowed_mcp_plugins: frozenset[str] | None = field(
         default=None
     )
 
@@ -36,3 +42,17 @@ class ToolContext:
             return True
 
         return tool_name in self.allowed_tools
+
+    def is_mcp_plugin_allowed(
+        self,
+        plugin_name: str,
+    ) -> bool:
+        """
+        Check whether an MCP plugin is allowed
+        for this request.
+        """
+
+        if self.allowed_mcp_plugins is None:
+            return True
+
+        return plugin_name in self.allowed_mcp_plugins

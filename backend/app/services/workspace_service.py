@@ -1,3 +1,4 @@
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.workspace import Workspace
@@ -30,3 +31,34 @@ def list_workspaces(
         db,
         user_id,
     )
+
+
+def require_workspace_access(
+    db: Session,
+    workspace_id: int,
+    user_id: int,
+) -> Workspace:
+    """
+    Verify that the authenticated user owns the workspace.
+
+    This is an application-level authorization boundary.
+
+    The client/LLM cannot override this check.
+    """
+
+    workspace = (
+        db.query(Workspace)
+        .filter(
+            Workspace.id == workspace_id,
+            Workspace.user_id == user_id,
+        )
+        .first()
+    )
+
+    if workspace is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workspace not found",
+        )
+
+    return workspace

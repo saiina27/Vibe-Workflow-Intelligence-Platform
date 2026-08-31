@@ -40,6 +40,13 @@ class ToolPermissionService:
         "search_memory",
         "search_knowledge",
         "search_web",
+        "github",
+
+        # ====================================================
+        # MCP INTEGRATIONS
+        # ====================================================
+
+        "slack",
     }
 
     def __init__(self):
@@ -50,6 +57,9 @@ class ToolPermissionService:
             - Workspace-level allow-list
             - User-level allow-list
             - Request-level restriction through ToolContext
+
+        Sprint 12:
+            - MCP integration permissions
 
         Future:
             Persistent permission storage can be added
@@ -121,7 +131,7 @@ class ToolPermissionService:
 
             1. Workspace-specific allow-list
             2. User-specific allow-list
-            3. Sprint 11 default allow-list
+            3. Default allow-list
         """
 
         # ----------------------------------------------------
@@ -189,9 +199,6 @@ class ToolPermissionService:
 
         If ToolContext.allowed_tools is None,
         the complete base permission set is returned.
-
-        The request-level restriction can never grant
-        permissions beyond the base application policy.
         """
 
         # ----------------------------------------------------
@@ -223,22 +230,6 @@ class ToolPermissionService:
         # ----------------------------------------------------
         # STEP 4: INTERSECTION
         # ----------------------------------------------------
-        #
-        # Request-level permissions can only reduce
-        # the application permission set.
-        #
-        # Example:
-        #
-        # Base:
-        #   {memory, knowledge, web}
-        #
-        # Request:
-        #   {memory}
-        #
-        # Result:
-        #   {memory}
-        #
-        # ----------------------------------------------------
 
         return (
             base_allowed_tools
@@ -257,8 +248,6 @@ class ToolPermissionService:
         """
         Check whether a specific tool is allowed
         for the current request context.
-
-        This uses the final effective permission set.
         """
 
         if not tool_name:

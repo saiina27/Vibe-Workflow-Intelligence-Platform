@@ -62,6 +62,7 @@ class MemoryService:
     def update_memory(
         self,
         db: Session,
+        workspace_id: int,
         memory_id: int,
         memory: MemoryUpdate,
     ) -> WorkspaceMemory | None:
@@ -72,6 +73,10 @@ class MemoryService:
         )
 
         if db_memory is None:
+            return None
+
+        # Prevent cross-workspace memory modification.
+        if db_memory.workspace_id != workspace_id:
             return None
 
         return self.repository.update(
@@ -102,6 +107,7 @@ class MemoryService:
     def delete_memory(
         self,
         db: Session,
+        workspace_id: int,
         memory_id: int,
     ) -> bool:
 
@@ -113,13 +119,16 @@ class MemoryService:
         if db_memory is None:
             return False
 
+        # Prevent cross-workspace memory deletion.
+        if db_memory.workspace_id != workspace_id:
+            return False
+
         self.repository.delete(
             db=db,
             db_memory=db_memory,
         )
 
         return True
-
 
     def increase_confidence(
         self,
@@ -129,8 +138,8 @@ class MemoryService:
     ) -> WorkspaceMemory:
 
         db_memory.confidence = min(
-        1.0,
-        db_memory.confidence + amount,
+            1.0,
+            db_memory.confidence + amount,
         )
 
         db.commit()

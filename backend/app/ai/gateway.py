@@ -6,6 +6,9 @@ from app.ai.usage_metrics import usage_metrics
 from app.schemas.ai import AIRequest, AIResponse
 from app.ai.tools.context import ToolContext
 from app.ai.tools.router import ToolRouter
+from app.mcp.runtime import (
+    mcp_permission_service,
+)
 
 
 class AIGateway:
@@ -100,7 +103,7 @@ class AIGateway:
     # TOOL-CALLING ENTRY POINT
     # ========================================================
 
-    def generate_with_tools(
+    async def generate_with_tools(
         self,
         request: AIRequest,
         context: ToolContext,
@@ -139,10 +142,9 @@ class AIGateway:
         # STEP 1: Build request-scoped registry
         # ====================================================
 
-        registry = self.tool_router.build_registry(
+        registry = await self.tool_router.build_registry(
             context
         )
-
         # ====================================================
         # STEP 2: Convert registered tools into
         # provider-independent tool definitions
@@ -164,6 +166,7 @@ class AIGateway:
             registry=registry,
             provider=self.provider,
             context=context,
+            mcp_permission_service=mcp_permission_service,
         )
 
         try:

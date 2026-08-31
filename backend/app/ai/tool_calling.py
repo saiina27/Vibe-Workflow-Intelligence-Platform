@@ -9,6 +9,7 @@ from app.repositories.tool_call_log_repository import (
     ToolCallLogRepository,
 )
 from app.schemas.ai import AIRequest, AIResponse, ToolResult
+from app.mcp.permissions import MCPPermissionService
 
 
 class ToolCallingService:
@@ -52,12 +53,14 @@ class ToolCallingService:
         registry: ToolRegistry,
         provider: AIProvider,
         context: ToolContext,
+        mcp_permission_service: MCPPermissionService,
     ):
         self.registry = registry
 
         self.executor = ToolExecutor(
             registry,
             context,
+            mcp_permission_service=mcp_permission_service,
         )
 
         self.provider = provider

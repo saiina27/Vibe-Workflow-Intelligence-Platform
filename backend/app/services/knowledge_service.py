@@ -29,12 +29,24 @@ class KnowledgeService:
         self,
         db: Session,
         source_id: int,
+        workspace_id: int | None = None,
     ) -> KnowledgeSource | None:
 
-        return self.repository.get_by_id(
+        source = self.repository.get_by_id(
             db=db,
             source_id=source_id,
         )
+
+        if source is None:
+            return None
+
+        if (
+            workspace_id is not None
+            and source.workspace_id != workspace_id
+        ):
+            return None
+
+        return source
 
     def get_workspace_sources(
         self,
@@ -52,7 +64,14 @@ class KnowledgeService:
         db: Session,
         source: KnowledgeSource,
         status: KnowledgeStatus,
-    ) -> KnowledgeSource:
+        workspace_id: int | None = None,
+    ) -> KnowledgeSource | None:
+
+        if (
+            workspace_id is not None
+            and source.workspace_id != workspace_id
+        ):
+            return None
 
         return self.repository.update_status(
             db=db,
@@ -75,6 +94,7 @@ class KnowledgeService:
         self,
         db: Session,
         source_id: int,
+        workspace_id: int,
     ) -> bool:
 
         source = self.repository.get_by_id(
@@ -83,6 +103,11 @@ class KnowledgeService:
         )
 
         if source is None:
+            return False
+
+        # Defense-in-depth:
+        # a source from another workspace cannot be deleted.
+        if source.workspace_id != workspace_id:
             return False
 
         self.repository.delete(

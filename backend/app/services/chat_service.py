@@ -1,11 +1,13 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.models.chat import Chat
-from fastapi import HTTPException
-
 from app.repositories.chat_repository import ChatRepository
+from app.services.workspace_service import require_workspace_access
+
 
 chat_repository = ChatRepository()
+
 
 def create_chat(
     db: Session,
@@ -14,22 +16,11 @@ def create_chat(
     user_id: int | None = None,
 ):
     if user_id is not None:
-        from app.models.workspace import Workspace
-
-        workspace = (
-            db.query(Workspace)
-            .filter(
-                Workspace.id == workspace_id,
-                Workspace.user_id == user_id,
-            )
-            .first()
+        require_workspace_access(
+            db=db,
+            workspace_id=workspace_id,
+            user_id=user_id,
         )
-
-        if workspace is None:
-            raise HTTPException(
-                status_code=404,
-                detail="Workspace not found",
-            )
 
     chat = Chat(
         title=title or "New Chat",
@@ -46,7 +37,14 @@ def create_chat(
 def get_workspace_chats(
     db: Session,
     workspace_id: int,
+    user_id: int,
 ):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
     return (
         db.query(Chat)
         .filter(Chat.workspace_id == workspace_id)
@@ -54,11 +52,19 @@ def get_workspace_chats(
         .all()
     )
 
+
 def archive_chat(
     db: Session,
     workspace_id: int,
     chat_id: int,
+    user_id: int,
 ):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
     chat = chat_repository.get_by_id(
         db,
         chat_id,
@@ -78,11 +84,19 @@ def archive_chat(
         chat,
     )
 
+
 def restore_chat(
     db: Session,
     workspace_id: int,
     chat_id: int,
+    user_id: int,
 ):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
     chat = chat_repository.get_by_id(
         db,
         chat_id,
@@ -102,11 +116,19 @@ def restore_chat(
         chat,
     )
 
+
 def get_chats_by_topic(
     db: Session,
     workspace_id: int,
     topic: str,
+    user_id: int,
 ):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
     return chat_repository.get_by_topic(
         db,
         workspace_id,
@@ -118,7 +140,14 @@ def get_chats_by_status(
     db: Session,
     workspace_id: int,
     status: str,
+    user_id: int,
 ):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
     return chat_repository.get_by_status(
         db,
         workspace_id,

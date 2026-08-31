@@ -6,18 +6,18 @@ from app.ai.tools.permissions import (
 )
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.web_search_tool import WebSearchTool
+from app.mcp.runtime import mcp_integration_manager
 
 
 class ToolRouter:
     """
     Builds the request-scoped tool registry for Vibe.
 
-    The application controls which tools are exposed
-    to the AI provider for each request.
+    Both native Vibe tools and MCP tools are exposed
+    through the same ToolRegistry boundary.
 
-    Tool instances receive the application-controlled
-    ToolContext. The LLM only receives tool definitions
-    and controls tool arguments.
+    MCP remains MCP-standard internally; the rest of
+    Vibe only sees registered BaseTool-compatible tools.
     """
 
     def __init__(self):
@@ -25,7 +25,11 @@ class ToolRouter:
             tool_permission_service
         )
 
-    def build_registry(
+        self.mcp_integration_manager = (
+            mcp_integration_manager
+        )
+
+    async def build_registry(
         self,
         context: ToolContext,
     ) -> ToolRegistry:
@@ -74,6 +78,72 @@ class ToolRouter:
 
                 print(
                     "Web search tool unavailable: "
+                    f"{exc}"
+                )
+
+        # ====================================================
+        # SLACK MCP
+        # ====================================================
+
+        if "slack" in allowed_tools:
+
+            try:
+
+                registered = (
+                    await self.mcp_integration_manager
+                    .connect_slack(
+                        db=context.db,
+                        user_id=context.user_id,
+                        registry=registry,
+                    )
+                )
+
+                print(
+                    "🔌 Slack MCP connected."
+                )
+
+                print(
+                    f"🔌 Slack MCP tools registered: "
+                    f"{registered}"
+                )
+
+            except Exception as exc:
+
+                print(
+                    "Slack MCP unavailable: "
+                    f"{exc}"
+                )
+
+        # ====================================================
+        # GITHUB MCP
+        # ====================================================
+
+        if "github" in allowed_tools:
+
+            try:
+
+                registered = (
+                    await self.mcp_integration_manager
+                    .connect_github(
+                        db=context.db,
+                        user_id=context.user_id,
+                        registry=registry,
+                    )
+                )
+
+                print(
+                    "🔌 GitHub MCP connected."
+                )
+
+                print(
+                    f"🔌 GitHub MCP tools registered: "
+                    f"{registered}"
+                )
+
+            except Exception as exc:
+
+                print(
+                    "GitHub MCP unavailable: "
                     f"{exc}"
                 )
 

@@ -32,7 +32,7 @@ def generate_ai_response(
     return response.content
 
 
-def generate_ai_response_with_tools(
+async def generate_ai_response_with_tools(
     prompt: str,
     context: ToolContext,
 ) -> str:
@@ -51,7 +51,7 @@ def generate_ai_response_with_tools(
         complexity=complexity,
     )
 
-    response = gateway.generate_with_tools(
+    response = await gateway.generate_with_tools(
         request=request,
         context=context,
     )

@@ -1,7 +1,17 @@
 from fastapi import APIRouter
 
-from app.api.routes import health, users, auth, workspaces, chats, messages, memories, knowledge,  knowledge_test
-
+from app.api.routes import (
+    auth,
+    chats,
+    health,
+    knowledge,
+    knowledge_test,
+    memories,
+    messages,
+    oauth,
+    users,
+    workspaces,
+)
 
 api_router = APIRouter()
 
@@ -15,3 +25,4 @@ api_router.include_router(messages.router)
 api_router.include_router(memories.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(knowledge_test.router)
+api_router.include_router(oauth.router)

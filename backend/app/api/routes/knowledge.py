@@ -12,18 +12,24 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db
-from app.schemas.knowledge import KnowledgeUploadResponse, KnowledgeListItem
-from app.services.auth_service import get_current_user
+from app.schemas.knowledge import (
+    KnowledgeListItem,
+    KnowledgeUploadResponse,
+)
 from app.services.knowledge_ingestion_service import (
     KnowledgeIngestionService,
 )
 from app.services.knowledge_service import KnowledgeService
+from app.services.workspace_service import require_workspace_access
+
 
 router = APIRouter(
     prefix="/workspaces/{workspace_id}/knowledge",
     tags=["Knowledge"],
 )
+
 
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(
@@ -31,8 +37,10 @@ UPLOAD_DIR.mkdir(
     exist_ok=True,
 )
 
+
 ingestion_service = KnowledgeIngestionService()
 knowledge_service = KnowledgeService()
+
 
 ALLOWED_EXTENSIONS = {
     ".pdf",
@@ -53,28 +61,27 @@ def upload_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # Authorization boundary
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+    )
 
-    extension = Path(
-        file.filename
-    ).suffix.lower()
+    extension = Path(file.filename).suffix.lower()
 
     if extension not in ALLOWED_EXTENSIONS:
-
         raise HTTPException(
-            status_code=400,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Unsupported file type",
         )
 
-    file_path = (
-        UPLOAD_DIR
-        / file.filename
-    )
+    file_path = UPLOAD_DIR / file.filename
 
     with open(
         file_path,
         "wb",
     ) as buffer:
-
         shutil.copyfileobj(
             file.file,
             buffer,
@@ -94,6 +101,7 @@ def upload_document(
         "source": source,
     }
 
+
 @router.get(
     "",
     response_model=list[KnowledgeListItem],
@@ -103,6 +111,12 @@ def list_knowledge(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # Authorization boundary
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+    )
 
     sources = knowledge_service.get_workspace_sources(
         db=db,
@@ -125,6 +139,7 @@ def list_knowledge(
         for source in sources
     ]
 
+
 @router.delete(
     "/{source_id}",
 )
@@ -134,16 +149,22 @@ def delete_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # Authorization boundary
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+    )
 
     deleted = knowledge_service.delete_source(
         db=db,
         source_id=source_id,
+        workspace_id=workspace_id,
     )
 
     if not deleted:
-
         raise HTTPException(
-            status_code=404,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail="Document not found",
         )
 

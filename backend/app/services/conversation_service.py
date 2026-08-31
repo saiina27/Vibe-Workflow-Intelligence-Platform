@@ -168,7 +168,7 @@ def _get_authorized_chat(
 # ASK AI
 # ============================================================
 
-def ask_ai(
+async def ask_ai(
     db: Session,
     chat_id: int,
     content: str,
@@ -954,7 +954,7 @@ def ask_ai(
         )
 
         ai_reply = (
-            generate_ai_response_with_tools(
+            await generate_ai_response_with_tools(
                 prompt=prompt,
                 context=tool_context,
             )

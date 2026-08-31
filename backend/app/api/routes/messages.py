@@ -2,8 +2,11 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.dependencies.database import get_db
-from app.schemas.message import MessageCreate, MessageResponse
-from app.services.auth_service import get_current_user
+from app.schemas.message import (
+    MessageCreate,
+    MessageResponse,
+)
+from app.dependencies.auth import get_current_user
 from app.services.conversation_service import ask_ai
 from app.services.message_service import get_chat_messages
 
@@ -14,17 +17,21 @@ router = APIRouter(
 )
 
 
+# ============================================================
+# CREATE MESSAGE
+# ============================================================
+
 @router.post(
     "",
     response_model=MessageResponse,
 )
-def create_message(
+async def create_message(
     chat_id: int,
     request: MessageCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    ask_ai(
+    await ask_ai(
         db=db,
         chat_id=chat_id,
         content=request.content,
@@ -37,6 +44,11 @@ def create_message(
     )
 
     return messages[-1]
+
+
+# ============================================================
+# LIST MESSAGES
+# ============================================================
 
 @router.get(
     "",

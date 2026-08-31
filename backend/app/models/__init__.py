@@ -9,3 +9,5 @@ from app.models.conversation_summary import ConversationSummary
 from app.models.knowledge_source import KnowledgeSource
 from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.tool_call_log import ToolCallLog
+from app.models.external_integration import ExternalIntegration
+from app.models.oauth_state import OAuthState

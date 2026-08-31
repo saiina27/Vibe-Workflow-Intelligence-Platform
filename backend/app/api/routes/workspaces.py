@@ -6,7 +6,7 @@ from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
 )
-from app.services.auth_service import get_current_user
+from app.dependencies.auth import get_current_user
 from app.services.workspace_service import (
     create_new_workspace,
     list_workspaces,
