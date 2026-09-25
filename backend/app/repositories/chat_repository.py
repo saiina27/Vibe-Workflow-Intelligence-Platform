@@ -101,3 +101,15 @@ class ChatRepository:
         )
 
         return list(db.scalars(statement))
+
+    def delete(
+        self,
+        db: Session,
+        chat: Chat,
+    ) -> None:
+
+        db.delete(chat)
+        db.commit()
+
+
+    

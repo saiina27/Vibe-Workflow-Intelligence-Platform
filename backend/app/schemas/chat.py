@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from pydantic import BaseModel
@@ -5,6 +6,10 @@ from pydantic import BaseModel
 
 class ChatCreate(BaseModel):
     title: str | None = None
+
+
+class ChatRename(BaseModel):
+    title: str
 
 
 class ChatResponse(BaseModel):
@@ -21,3 +26,4 @@ class ChatResponse(BaseModel):
     model_config = {
         "from_attributes": True,
     }
+

@@ -1,9 +1,15 @@
+from collections.abc import Iterator
+
 from app.ai.prompt_cache import prompt_cache
 from app.ai.router import ProviderRouter
 from app.ai.retry import ai_retry
 from app.ai.tool_calling import ToolCallingService
 from app.ai.usage_metrics import usage_metrics
-from app.schemas.ai import AIRequest, AIResponse
+from app.schemas.ai import (
+    AIRequest,
+    AIResponse,
+    AIStreamEvent,
+)
 from app.ai.tools.context import ToolContext
 from app.ai.tools.router import ToolRouter
 from app.mcp.runtime import (
@@ -86,6 +92,408 @@ class AIGateway:
             raise
 
     # ========================================================
+    # NORMAL STREAMING PROVIDER CALL
+    # ========================================================
+
+    def stream(
+        self,
+        request: AIRequest,
+    ) -> Iterator[str]:
+        """
+        Stream the AI response incrementally.
+
+        Streaming intentionally bypasses prompt cache.
+        """
+
+        try:
+
+            yield from self.provider.stream(
+                request
+            )
+
+        except Exception as e:
+
+            print(
+                f"AI Gateway Streaming Error: {e}"
+            )
+
+            raise
+
+    # ========================================================
+    # STREAMING TOOL-CALLING PROVIDER CALL
+    # ========================================================
+
+    @ai_retry
+    def _stream_provider_with_tools(
+        self,
+        request: AIRequest,
+    ) -> Iterator[AIStreamEvent]:
+
+        yield from self.provider.stream_with_tools(
+            request
+        )
+
+    @ai_retry
+    def _stream_provider_with_tool_results(
+        self,
+        request: AIRequest,
+        original_response: AIResponse,
+        tool_results: list[dict],
+    ) -> Iterator[AIStreamEvent]:
+
+        yield from self.provider.stream_with_tool_results(
+            request=request,
+            original_response=original_response,
+            tool_results=tool_results,
+        )
+
+    # ========================================================
+    # STREAMING TOOL-CALLING REGISTRY
+    # ========================================================
+
+    def _build_streaming_registry(
+        self,
+        context: ToolContext,
+    ):
+        """
+        Build the request-scoped registry for the synchronous
+        streaming generator.
+
+        ToolRouter exposes an async registry builder, while
+        the current provider streaming interface is
+        synchronous.
+
+        The SSE route currently invokes this synchronous
+        generator from a synchronous request handler, so
+        asyncio.run() is used when no event loop is active.
+        """
+
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+
+        except RuntimeError:
+
+            return asyncio.run(
+                self.tool_router.build_registry(
+                    context
+                )
+            )
+
+        raise RuntimeError(
+            "Cannot build the streaming tool registry while "
+            "an asyncio event loop is already running."
+        )
+
+    # ========================================================
+    # STREAMING TOOL-CALLING ENTRY POINT
+    # ========================================================
+
+    def stream_with_tools(
+        self,
+        request: AIRequest,
+        context: ToolContext,
+    ) -> Iterator[AIStreamEvent]:
+        """
+        Provider-independent streaming tool orchestration.
+
+        Flow:
+
+            Provider
+                ↓
+            content / tool_call
+                ↓
+            ToolCallingService
+                ↓
+            tool_start
+                ↓
+            REAL ToolExecutor execution
+                ↓
+            ToolCallLog
+                ↓
+            tool_done / tool_error
+                ↓
+            tool_result
+                ↓
+            SAME provider
+                ↓
+            final content
+
+        Multiple provider → tool → provider rounds are
+        supported up to ToolCallingService.MAX_TOOL_ITERATIONS.
+
+        Tool lifecycle events are emitted directly from the
+        streaming execution path so the frontend can observe
+        the real order:
+
+            tool_start
+            → execution
+            → tool_done / tool_error
+        """
+
+        # ====================================================
+        # STEP 1: BUILD REQUEST-SCOPED TOOL REGISTRY
+        # ====================================================
+
+        registry = self._build_streaming_registry(
+            context
+        )
+
+        # ====================================================
+        # STEP 2: ATTACH TOOL DEFINITIONS
+        # ====================================================
+
+        request.tools = registry.definitions()
+
+        if not request.tools:
+
+            raise ValueError(
+                "No tools are registered for this request."
+            )
+
+        # ====================================================
+        # STEP 3: CREATE REQUEST-SCOPED TOOL SERVICE
+        # ====================================================
+
+        tool_calling = ToolCallingService(
+            registry=registry,
+            provider=self.provider,
+            context=context,
+            mcp_permission_service=mcp_permission_service,
+        )
+
+        # ====================================================
+        # STEP 4: INITIAL PROVIDER STREAM
+        # ====================================================
+
+        provider_events = self._stream_provider_with_tools(
+            request
+        )
+
+        # ====================================================
+        # STEP 5: PROVIDER / TOOL ITERATION LOOP
+        # ====================================================
+
+        for iteration in range(
+            1,
+            tool_calling.MAX_TOOL_ITERATIONS + 1,
+        ):
+
+            print("=" * 60)
+
+            print(
+                "AI STREAMING TOOL-CALLING ITERATION"
+            )
+
+            print(
+                f"Iteration: "
+                f"{iteration}/"
+                f"{tool_calling.MAX_TOOL_ITERATIONS}"
+            )
+
+            print("=" * 60)
+
+            tool_call_detected = False
+
+            # Provider context must be preserved when the
+            # provider requests tools.
+            current_response: AIResponse | None = None
+
+            # =================================================
+            # STREAM CURRENT PROVIDER RESPONSE
+            # =================================================
+
+            for event in provider_events:
+
+                # ---------------------------------------------
+                # NORMAL CONTENT
+                # ---------------------------------------------
+
+                if event.type == "content":
+
+                    yield event
+
+                    continue
+
+                # ---------------------------------------------
+                # PROVIDER TOOL CALL
+                # ---------------------------------------------
+
+                if event.type == "tool_call":
+
+                    if not event.tool_calls:
+
+                        raise RuntimeError(
+                            "Provider emitted a tool_call "
+                            "event without tool calls."
+                        )
+
+                    tool_call_detected = True
+
+                    current_response = AIResponse(
+                        content=None,
+                        model=event.model,
+                        provider=event.provider,
+                        tool_calls=event.tool_calls,
+                        provider_context=(
+                            event.provider_context
+                        ),
+                    )
+
+                    print(
+                        "🔧 Streaming tool calling requested."
+                    )
+
+                    print(
+                        f"🔧 Tool calls: "
+                        f"{len(event.tool_calls)}"
+                    )
+
+                    # -----------------------------------------
+                    # REAL STREAMING TOOL EXECUTION
+                    # -----------------------------------------
+
+                    tool_results = []
+
+                    for tool_event in (
+                        tool_calling.stream_tool_calls(
+                            current_response
+                        )
+                    ):
+
+                        # -------------------------------------
+                        # TOOL START / DONE / ERROR
+                        # -------------------------------------
+
+                        if tool_event["type"] in {
+                            "tool_start",
+                            "tool_done",
+                            "tool_error",
+                        }:
+
+                            yield AIStreamEvent(
+                                type=tool_event["type"],
+                                tool_call_id=(
+                                    tool_event.get(
+                                        "tool_call_id"
+                                    )
+                                ),
+                                tool_name=(
+                                    tool_event.get(
+                                        "tool_name"
+                                    )
+                                ),
+                                duration_ms=(
+                                    tool_event.get(
+                                        "duration_ms"
+                                    )
+                                ),
+                                error=(
+                                    tool_event.get(
+                                        "error"
+                                    )
+                                ),
+                            )
+
+                            continue
+
+                        # -------------------------------------
+                        # TOOL RESULT
+                        # -------------------------------------
+
+                        if tool_event["type"] == "tool_result":
+
+                            tool_result = (
+                                tool_event["result"]
+                            )
+
+                            tool_results.append(
+                                tool_result
+                            )
+
+                            continue
+
+                        raise RuntimeError(
+                            "Unknown streaming tool event: "
+                            f"{tool_event['type']}"
+                        )
+
+                    # -----------------------------------------
+                    # VALIDATE EXECUTION
+                    # -----------------------------------------
+
+                    if not tool_results:
+
+                        raise RuntimeError(
+                            "Tool calls were present but no "
+                            "tool results were produced."
+                        )
+
+                    # -----------------------------------------
+                    # PROVIDER-FACING RESULTS
+                    # -----------------------------------------
+
+                    serialized_results = []
+
+                    for tool_result in tool_results:
+
+                        bounded_result = (
+                            tool_calling._bound_tool_result(
+                                tool_result.result
+                            )
+                        )
+
+                        serialized_results.append(
+                            {
+                                "tool_call_id": (
+                                    tool_result.tool_call_id
+                                ),
+                                "name": tool_result.name,
+                                "result": bounded_result,
+                            }
+                        )
+
+                    # -----------------------------------------
+                    # SAME PROVIDER WITH TOOL RESULTS
+                    # -----------------------------------------
+
+                    provider_events = (
+                        self._stream_provider_with_tool_results(
+                            request=request,
+                            original_response=current_response,
+                            tool_results=serialized_results,
+                        )
+                    )
+
+                    break
+
+                # ---------------------------------------------
+                # UNKNOWN PROVIDER EVENT
+                # ---------------------------------------------
+
+                yield event
+
+            # =================================================
+            # NO TOOL CALL → PROVIDER FINISHED
+            # =================================================
+
+            if not tool_call_detected:
+
+                return
+
+        # ====================================================
+        # MAXIMUM ITERATIONS REACHED
+        # ====================================================
+
+        raise RuntimeError(
+            "Maximum streaming tool-calling iterations "
+            f"reached ({tool_calling.MAX_TOOL_ITERATIONS}). "
+            "The provider continued requesting tools "
+            "without producing a final answer."
+        )
+
+    # ========================================================
     # TOOL-CALLING PROVIDER CALL
     # ========================================================
 
@@ -112,42 +520,18 @@ class AIGateway:
         Sprint 11 tool-calling entry point.
 
         Each request receives its own ToolRegistry.
-
-        Flow:
-
-            Gateway
-                ↓
-            ToolRouter
-                ↓
-            Request-scoped ToolRegistry
-                ↓
-            ProviderRouter
-                ↓
-            AI Provider
-                ↓
-            Tool Call
-                ↓
-            ToolCallingService
-                ↓
-            ToolExecutor
-                ↓
-            Tool Result
-                ↓
-            SAME Provider
-                ↓
-            Final Answer
         """
 
         # ====================================================
-        # STEP 1: Build request-scoped registry
+        # STEP 1: BUILD REQUEST-SCOPED REGISTRY
         # ====================================================
 
         registry = await self.tool_router.build_registry(
             context
         )
+
         # ====================================================
-        # STEP 2: Convert registered tools into
-        # provider-independent tool definitions
+        # STEP 2: ATTACH TOOL DEFINITIONS
         # ====================================================
 
         request.tools = registry.definitions()
@@ -159,7 +543,7 @@ class AIGateway:
             )
 
         # ====================================================
-        # STEP 3: Create request-scoped ToolCallingService
+        # STEP 3: CREATE TOOL CALLING SERVICE
         # ====================================================
 
         tool_calling = ToolCallingService(
@@ -172,7 +556,7 @@ class AIGateway:
         try:
 
             # =================================================
-            # STEP 4: Initial provider request
+            # STEP 4: INITIAL PROVIDER REQUEST
             # =================================================
 
             initial_response = (
@@ -186,7 +570,7 @@ class AIGateway:
             )
 
             # =================================================
-            # STEP 5: Provider answered directly
+            # STEP 5: PROVIDER ANSWERED DIRECTLY
             # =================================================
 
             if not initial_response.tool_calls:
@@ -194,7 +578,7 @@ class AIGateway:
                 return initial_response
 
             # =================================================
-            # STEP 6: Tool call detected
+            # STEP 6: TOOL CALL DETECTED
             # =================================================
 
             print(
@@ -219,13 +603,11 @@ class AIGateway:
                 )
 
             # =================================================
-            # STEP 7: Execute tools and complete
-            # provider round-trip
+            # STEP 7: COMPLETE TOOL-CALLING LOOP
             # =================================================
 
             final_response = (
-                tool_calling
-                .complete_with_tool_results(
+                tool_calling.complete_with_tool_results(
                     request=request,
                     initial_response=initial_response,
                 )
@@ -236,7 +618,7 @@ class AIGateway:
             )
 
             # =================================================
-            # STEP 8: Validate final response
+            # STEP 8: VALIDATE FINAL RESPONSE
             # =================================================
 
             if final_response.content is None:

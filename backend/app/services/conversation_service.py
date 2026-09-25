@@ -1,6 +1,7 @@
 import logging
-from fastapi import HTTPException
+from collections.abc import Iterator
 
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.ai.chat_title_generator import ChatTitleGenerator
@@ -30,6 +31,8 @@ from app.repositories.message_repository import (
 )
 
 from app.services.ai_service import (
+    generate_ai_response_stream,
+    generate_ai_response_stream_with_tools,
     generate_ai_response_with_tools,
 )
 from app.services.memory_cleanup_service import (
@@ -40,6 +43,7 @@ from app.services.memory_decision_service import (
 )
 from app.services.summary_service import summary_service
 from app.schemas.workspace_memory import MemoryCreate
+from app.schemas.ai import AIStreamEvent
 
 
 # ============================================================
@@ -248,7 +252,6 @@ async def ask_ai(
         db=db,
         workspace_id=chat.workspace_id,
         user_id=user_id,
-        
     )
 
     logger.info(
@@ -557,7 +560,6 @@ async def ask_ai(
 
             db.rollback()
 
-            # Re-fetch the authorized chat after rollback.
             chat = _get_authorized_chat(
                 db=db,
                 chat_id=chat_id,
@@ -630,16 +632,6 @@ async def ask_ai(
 
     try:
 
-        logger.info(
-            "Workspace ID: %s",
-            chat.workspace_id,
-        )
-
-        logger.info(
-            "Query: %s",
-            debug_preview(content),
-        )
-
         knowledge_chunks = (
             knowledge_retriever.retrieve(
                 db=db,
@@ -709,20 +701,6 @@ async def ask_ai(
             len(history),
         )
 
-        if history:
-
-            logger.info(
-                "Last message: %s",
-                debug_preview(
-                    getattr(
-                        history[-1],
-                        "content",
-                        None,
-                    ),
-                    300,
-                ),
-            )
-
     except Exception:
 
         logger.exception(
@@ -738,11 +716,6 @@ async def ask_ai(
     debug_separator("CONVERSATION SUMMARY")
 
     message_count = len(history)
-
-    logger.info(
-        "Message count: %s",
-        message_count,
-    )
 
     try:
 
@@ -766,14 +739,6 @@ async def ask_ai(
             logger.info(
                 "Last summary message count: %s",
                 last_summary_count,
-            )
-
-            logger.info(
-                "Existing summary:\n%s",
-                debug_preview(
-                    conversation_summary.summary,
-                    1500,
-                ),
             )
 
         else:
@@ -833,21 +798,8 @@ async def ask_ai(
                 history
             )
 
-            logger.info(
-                "Conversation length: %s",
-                len(conversation),
-            )
-
             summary = generate_summary(
                 conversation
-            )
-
-            logger.info(
-                "Generated summary:\n%s",
-                debug_preview(
-                    summary,
-                    1500,
-                ),
             )
 
             if not summary:
@@ -861,10 +813,6 @@ async def ask_ai(
                 chat_id=chat_id,
                 summary=summary,
                 message_count=message_count,
-            )
-
-            logger.info(
-                "Summary saved successfully."
             )
 
             conversation_summary = (
@@ -907,20 +855,8 @@ async def ask_ai(
         )
 
         logger.info(
-            "Prompt built successfully."
-        )
-
-        logger.info(
-            "Prompt length: %s",
+            "Prompt built successfully. Length: %s",
             len(prompt),
-        )
-
-        logger.info(
-            "FINAL PROMPT PREVIEW:\n%s",
-            debug_preview(
-                prompt,
-                3000,
-            ),
         )
 
     except Exception:
@@ -939,20 +875,6 @@ async def ask_ai(
 
     try:
 
-        logger.info(
-            "Calling generate_ai_response_with_tools()..."
-        )
-
-        logger.info(
-            "Tool context workspace ID: %s",
-            tool_context.workspace_id,
-        )
-
-        logger.info(
-            "Tool context user ID: %s",
-            tool_context.user_id,
-        )
-
         ai_reply = (
             await generate_ai_response_with_tools(
                 prompt=prompt,
@@ -970,19 +892,6 @@ async def ask_ai(
 
         logger.info(
             "AI response generated successfully."
-        )
-
-        logger.info(
-            "AI reply length: %s",
-            len(ai_reply),
-        )
-
-        logger.info(
-            "FINAL AI RESPONSE:\n%s",
-            debug_preview(
-                ai_reply,
-                2000,
-            ),
         )
 
     except Exception:
@@ -1027,10 +936,6 @@ async def ask_ai(
     debug_separator("AUTOMATIC MEMORY EXTRACTION")
 
     try:
-
-        logger.info(
-            "Extracting automatic memories..."
-        )
 
         extracted_memories = extract_memories(
             content
@@ -1079,12 +984,585 @@ async def ask_ai(
         chat_id,
     )
 
+    return ai_reply
+
+
+# ============================================================
+# STREAMING ASK AI
+# ============================================================
+
+def stream_ai_response(
+    db: Session,
+    chat_id: int,
+    content: str,
+    user_id: int,
+    with_tools: bool = False,
+) -> Iterator[str]:
+    """
+    Stream an AI response while preserving the normal
+    conversation lifecycle.
+
+    IMPORTANT:
+
+    This is the Phase 3 streaming path.
+
+    Existing ask_ai() remains the normal non-streaming
+    + tool-calling path.
+
+    Streaming currently streams direct provider text.
+    Tool Activity events and streaming tool-calling are
+    intentionally left for the next phase.
+
+    Flow:
+
+        Validate Chat
+            ↓
+        Memory Cleanup
+            ↓
+        Intent Detection
+            ↓
+        Save User Message
+            ↓
+        Title / Topic
+            ↓
+        Memory Retrieval
+            ↓
+        RAG Retrieval
+            ↓
+        History / Summary
+            ↓
+        Build Prompt
+            ↓
+        Provider Streaming
+            ↓
+        Accumulate Response
+            ↓
+        Save Assistant Message
+            ↓
+        Automatic Memory Extraction
+    """
+
+    debug_separator("STREAMING ASK AI START")
+
     logger.info(
-        "Final AI reply:\n%s",
-        debug_preview(
-            ai_reply,
-            2000,
-        ),
+        "Chat ID: %s | User ID: %s",
+        chat_id,
+        user_id,
     )
 
-    return ai_reply
+    logger.info(
+        "Streaming user message: %s",
+        debug_preview(content),
+    )
+
+    # ========================================================
+    # 1. CHAT ACCESS VALIDATION
+    # ========================================================
+
+    chat = _get_authorized_chat(
+        db=db,
+        chat_id=chat_id,
+        user_id=user_id,
+    )
+
+    # ========================================================
+    # 2. MEMORY CLEANUP
+    # ========================================================
+
+    try:
+
+        memory_cleanup_service.expire_memories(
+            db
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Streaming memory cleanup failed. "
+            "Continuing request."
+        )
+
+    # ========================================================
+    # 3. INTENT DETECTION
+    # ========================================================
+
+    intent = detect_intent(content)
+
+    # ========================================================
+    # 4. SPECIAL INTENTS
+    # ========================================================
+
+    if intent == Intent.REMEMBER:
+
+        try:
+
+            memory_data = extract_memory(
+                content
+            )
+
+            memory = MemoryCreate(
+                memory_type=memory_data["memory_type"],
+                title=memory_data["title"],
+                content=memory_data["content"],
+                importance=memory_data.get(
+                    "importance",
+                    5,
+                ),
+            )
+
+            memory_decision_service.process_memory(
+                db=db,
+                workspace_id=chat.workspace_id,
+                memory=memory,
+            )
+
+            message = (
+                "🧠 Memory has been saved successfully."
+            )
+
+            yield message
+
+            return
+
+        except Exception:
+
+            logger.exception(
+                "Streaming REMEMBER intent failed."
+            )
+
+            raise
+
+    if intent == Intent.SAVE_SUMMARY:
+
+        try:
+
+            history = get_messages_for_ai(
+                db=db,
+                chat_id=chat_id,
+            )
+
+            conversation = format_conversation(
+                history
+            )
+
+            summary = generate_summary(
+                conversation
+            )
+
+            memory_repository.create_summary(
+                db=db,
+                workspace_id=chat.workspace_id,
+                summary=summary,
+            )
+
+            message = (
+                "✅ Conversation summary has been "
+                "saved to workspace memory."
+            )
+
+            yield message
+
+            return
+
+        except Exception:
+
+            logger.exception(
+                "Streaming SAVE SUMMARY intent failed."
+            )
+
+            raise
+
+    # ========================================================
+    # 5. SAVE USER MESSAGE
+    # ========================================================
+
+    create_message(
+        db=db,
+        chat_id=chat_id,
+        role="user",
+        content=content,
+    )
+
+    # ========================================================
+    # 6. AUTOMATIC CHAT TITLE
+    # ========================================================
+
+    if chat.title == "New Chat":
+
+        try:
+
+            generated_title = (
+                chat_title_generator.generate(
+                    conversation=f"User: {content}"
+                )
+            )
+
+            if generated_title:
+
+                chat_repository.update_title(
+                    db=db,
+                    chat=chat,
+                    title=generated_title,
+                )
+
+        except Exception:
+
+            logger.exception(
+                "Streaming automatic title generation failed."
+            )
+
+    # ========================================================
+    # 7. AUTOMATIC CHAT TOPIC
+    # ========================================================
+
+    if chat.topic is None:
+
+        try:
+
+            detected_topic = topic_detector.detect(
+                message=content,
+            )
+
+            chat.topic = detected_topic
+
+            db.commit()
+            db.refresh(chat)
+
+        except Exception:
+
+            logger.exception(
+                "Streaming topic detection failed."
+            )
+
+            db.rollback()
+
+            chat = _get_authorized_chat(
+                db=db,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
+
+    # ========================================================
+    # 8. MEMORY RETRIEVAL
+    # ========================================================
+
+    try:
+
+        memories = memory_retriever.retrieve(
+            db=db,
+            workspace_id=chat.workspace_id,
+            query=content,
+            limit=5,
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Streaming memory retrieval failed."
+        )
+
+        memories = []
+
+    # ========================================================
+    # 9. RAG KNOWLEDGE RETRIEVAL
+    # ========================================================
+
+    try:
+
+        knowledge_chunks = (
+            knowledge_retriever.retrieve(
+                db=db,
+                workspace_id=chat.workspace_id,
+                query=content,
+                limit=5,
+            )
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Streaming knowledge retrieval failed."
+        )
+
+        knowledge_chunks = []
+
+    # ========================================================
+    # 10. LOAD CHAT HISTORY
+    # ========================================================
+
+    history = get_messages_for_ai(
+        db=db,
+        chat_id=chat_id,
+    )
+
+    # ========================================================
+    # 11. LOAD CONVERSATION SUMMARY
+    # ========================================================
+
+    message_count = len(history)
+
+    try:
+
+        conversation_summary = (
+            summary_service.get_summary(
+                db=db,
+                chat_id=chat_id,
+            )
+        )
+
+        if conversation_summary:
+
+            last_summary_count = (
+                conversation_summary.message_count
+            )
+
+        else:
+
+            last_summary_count = None
+
+    except Exception:
+
+        logger.exception(
+            "Streaming conversation summary retrieval failed."
+        )
+
+        conversation_summary = None
+        last_summary_count = None
+
+    # ========================================================
+    # 12. SUMMARY DECISION
+    # ========================================================
+
+    try:
+
+        should_generate_summary = (
+            summary_service.should_generate_summary(
+                message_count=message_count,
+                last_summary_count=last_summary_count,
+            )
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Streaming summary decision failed."
+        )
+
+        should_generate_summary = False
+
+    # ========================================================
+    # 13. GENERATE SUMMARY
+    # ========================================================
+
+    if should_generate_summary:
+
+        try:
+
+            conversation = format_conversation(
+                history
+            )
+
+            summary = generate_summary(
+                conversation
+            )
+
+            if summary:
+
+                summary_service.save_summary(
+                    db=db,
+                    chat_id=chat_id,
+                    summary=summary,
+                    message_count=message_count,
+                )
+
+                conversation_summary = (
+                    summary_service.get_summary(
+                        db=db,
+                        chat_id=chat_id,
+                    )
+                )
+
+        except Exception:
+
+            logger.exception(
+                "Streaming automatic summary generation failed."
+            )
+
+            conversation_summary = None
+
+    # ========================================================
+    # 14. BUILD PROMPT
+    # ========================================================
+
+    prompt = build_prompt(
+        memories=memories,
+        conversation_summary=conversation_summary,
+        history=history,
+        knowledge_chunks=knowledge_chunks,
+        include_memories=False,
+        include_knowledge=False,
+    )
+
+    logger.info(
+        "Streaming prompt built. Length: %s",
+        len(prompt),
+    )
+
+    # ========================================================
+    # 15. STREAM AI RESPONSE
+    # ========================================================
+
+    response_chunks: list[str] = []
+
+    try:
+
+        if with_tools:
+
+            tool_context = ToolContext(
+                db=db,
+                workspace_id=chat.workspace_id,
+                user_id=user_id,
+            )
+
+            logger.info(
+                "Streaming tool-aware AI response enabled."
+            )
+
+            for event in (
+                generate_ai_response_stream_with_tools(
+                    prompt=prompt,
+                    context=tool_context,
+                )
+            ):
+
+                # --------------------------------------------
+                # CONTENT EVENT
+                # --------------------------------------------
+
+                if event.type == "content":
+
+                    if not event.text:
+                        continue
+
+                    response_chunks.append(
+                        event.text
+                    )
+
+                    yield event
+
+                    continue
+
+                # --------------------------------------------
+                # TOOL LIFECYCLE EVENT
+                # --------------------------------------------
+
+                yield event
+
+        else:
+
+            # Existing Phase 3 text streaming path.
+            for chunk in generate_ai_response_stream(
+                prompt
+            ):
+
+                if not chunk:
+                    continue
+
+                response_chunks.append(
+                    chunk
+                )
+
+                yield chunk
+
+    except Exception:
+
+        logger.exception(
+            "AI streaming failed."
+        )
+
+        raise
+    # ========================================================
+    # 16. BUILD COMPLETE RESPONSE
+    # ========================================================
+
+    ai_reply = "".join(
+        response_chunks
+    )
+
+    if not ai_reply:
+
+        raise RuntimeError(
+            "AI provider returned an empty streaming response."
+        )
+
+    logger.info(
+        "Streaming completed. Final response length: %s",
+        len(ai_reply),
+    )
+
+    # ========================================================
+    # 17. SAVE ASSISTANT RESPONSE
+    # ========================================================
+
+    try:
+
+        create_message(
+            db=db,
+            chat_id=chat_id,
+            role="assistant",
+            content=ai_reply,
+        )
+
+        logger.info(
+            "Streaming assistant response saved successfully."
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Failed to save streaming assistant response."
+        )
+
+        raise
+
+    # ========================================================
+    # 18. AUTOMATIC MEMORY EXTRACTION
+    # ========================================================
+
+    try:
+
+        extracted_memories = extract_memories(
+            content
+        )
+
+        if extracted_memories:
+
+            memory_decision_service.process_memories(
+                db=db,
+                workspace_id=chat.workspace_id,
+                memories=extracted_memories,
+            )
+
+            logger.info(
+                "Streaming automatic memories processed."
+            )
+
+    except Exception:
+
+        logger.exception(
+            "Streaming automatic memory extraction failed."
+        )
+
+        # Memory extraction must never invalidate
+        # an otherwise successful AI response.
+
+    # ========================================================
+    # 19. COMPLETE
+    # ========================================================
+
+    debug_separator("STREAMING ASK AI COMPLETE")
+
+    logger.info(
+        "Chat ID %s streaming request completed.",
+        chat_id,
+    )

@@ -1,8 +1,11 @@
+from collections.abc import Iterator
+
 from app.ai.providers.registry import ProviderRegistry
 from app.ai.routing_decision import build_routing_decision
-from app.schemas.ai import AIRequest, AIResponse
+from app.schemas.ai import AIRequest, AIResponse, AIStreamEvent
 from app.core.config import settings
 from app.ai.retry import ai_retry
+
 
 class ProviderRouter:
 
@@ -240,6 +243,163 @@ class ProviderRouter:
             return fallback_provider.generate_with_tools(
                 request
             )
+
+    def stream(
+        self,
+        request: AIRequest,
+    ) -> Iterator[str]:
+        """
+        Stream the AI response incrementally.
+
+        Flow:
+
+            AIRequest
+                ↓
+            ProviderRouter
+                ↓
+            Selected Provider
+                ↓
+            Provider.stream()
+                ↓
+            text chunk
+                ↓
+            text chunk
+                ↓
+            text chunk
+
+        The router keeps the same provider-selection
+        and fallback architecture used by normal
+        generation.
+        """
+
+        provider = self._select_provider(
+            request
+        )
+
+        try:
+
+            yield from provider.stream(
+                request
+            )
+
+        except Exception as primary_error:
+
+            print(
+                f"Primary streaming provider failed: "
+                f"{primary_error}"
+            )
+
+            if self.fallback is None:
+
+                raise
+
+            fallback_provider = (
+                self._switch_to_fallback(
+                    request
+                )
+            )
+
+            yield from fallback_provider.stream(
+                request
+            )
+
+    def stream_with_tools(
+        self,
+        request: AIRequest,
+    ) -> Iterator[AIStreamEvent]:
+        """
+        Stream an AI response while supporting native
+        provider tool calling.
+
+        The selected provider emits provider-independent
+        AIStreamEvent objects.
+        """
+
+        if not request.tools:
+            raise ValueError(
+                "Tool-enabled streaming requires "
+                "at least one tool."
+            )
+
+        provider = self._select_provider(
+            request
+        )
+
+        try:
+            yield from provider.stream_with_tools(
+                request
+            )
+
+        except Exception as primary_error:
+
+            print(
+                "Primary tool-calling streaming "
+                f"provider failed: {primary_error}"
+            )
+
+            if self.fallback is None:
+                raise
+
+            fallback_provider = (
+                self._switch_to_fallback(
+                    request
+                )
+            )
+
+            yield from fallback_provider.stream_with_tools(
+                request
+            )
+
+    @ai_retry
+    def stream_with_tool_results(
+        self,
+        request: AIRequest,
+        original_response: AIResponse,
+        tool_results: list[dict],
+    ) -> Iterator[AIStreamEvent]:
+        """
+        Stream the response after tool execution.
+
+        The response is routed back to the SAME provider
+        that generated the original tool call.
+        """
+
+        provider_name = (
+            original_response.provider
+        )
+
+        provider = self.registry.providers.get(
+            provider_name
+        )
+
+        if provider is None:
+            raise ValueError(
+                f"Provider '{provider_name}' not found "
+                "for streaming tool-result round-trip."
+            )
+
+        request.model = self._get_model_for_provider(
+            provider_name
+        )
+
+        print("=" * 60)
+        print("AI STREAMING TOOL RESULT ROUTING")
+        print(
+            f"Provider: {provider_name}"
+        )
+        print(
+            f"Model: {request.model}"
+        )
+        print(
+            f"Tool Results: {len(tool_results)}"
+        )
+        print("=" * 60)
+
+        yield from provider.stream_with_tool_results(
+            request=request,
+            original_response=original_response,
+            tool_results=tool_results,
+        )
 
     @ai_retry
     def generate_with_tool_results(

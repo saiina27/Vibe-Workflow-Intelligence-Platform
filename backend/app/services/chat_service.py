@@ -116,6 +116,83 @@ def restore_chat(
         chat,
     )
 
+def delete_chat(
+    db: Session,
+    workspace_id: int,
+    chat_id: int,
+    user_id: int,
+):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
+    chat = chat_repository.get_by_id(
+        db,
+        chat_id,
+    )
+
+    if (
+        chat is None
+        or chat.workspace_id != workspace_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found",
+        )
+
+    chat_repository.delete(
+        db,
+        chat,
+    )
+
+def rename_chat(
+    db: Session,
+    workspace_id: int,
+    chat_id: int,
+    user_id: int,
+    title: str,
+):
+    require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
+    chat = chat_repository.get_by_id(
+        db,
+        chat_id,
+    )
+
+    if (
+        chat is None
+        or chat.workspace_id != workspace_id
+    ):
+        raise HTTPException(
+            status_code=404,
+            detail="Chat not found",
+        )
+
+    cleaned_title = title.strip()
+
+    if not cleaned_title:
+        raise HTTPException(
+            status_code=400,
+            detail="Chat title cannot be empty",
+        )
+
+    if len(cleaned_title) > 200:
+        raise HTTPException(
+            status_code=400,
+            detail="Chat title cannot exceed 200 characters",
+        )
+
+    return chat_repository.update_title(
+        db,
+        chat,
+        cleaned_title,
+    )
 
 def get_chats_by_topic(
     db: Session,
