@@ -12,6 +12,7 @@ import {
   getCurrentUser,
   getMessages,
   getWorkspaces,
+  createWorkspace,
   renameChat,
   restoreChat,
   streamMessage,
@@ -107,12 +108,14 @@ function App() {
 
         await getCurrentUser(currentToken)
 
-        const workspaces =
+        let workspaces =
           await getWorkspaces()
 
         if (!workspaces.length) {
-          setError('No workspace found.')
-          return
+          const newWorkspace =
+            await createWorkspace('My Workspace')
+
+          workspaces = [newWorkspace]
         }
 
         const currentWorkspace =

@@ -141,6 +141,20 @@ export async function getWorkspaces() {
   )
 }
 
+export async function createWorkspace(
+  name: string,
+) {
+  return authenticatedFetch(
+    '/workspaces/',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+      }),
+    },
+  )
+}
+
 /* =========================
 CHATS
 ========================= */
