@@ -1280,33 +1280,7 @@ function App() {
                   )
                 )}
 
-                {loading && (
-                  <div className="message assistant">
-
-                    <strong>
-                      Vibe
-                    </strong>
-
-                    {messages.length >
-                      0 &&
-                    messages[
-                      messages.length - 1
-                    ].role ===
-                      'assistant' &&
-                    messages[
-                      messages.length - 1
-                    ].content ? (
-                      <p>
-                        Streaming...
-                      </p>
-                    ) : (
-                      <p>
-                        Thinking...
-                      </p>
-                    )}
-
-                  </div>
-                )}
+              
 
               </div>
 

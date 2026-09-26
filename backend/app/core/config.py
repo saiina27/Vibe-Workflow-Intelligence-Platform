@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     host: str
     port: int
 
+    cors_origins: str = "http://localhost:5173"
+
     database_url: str
 
     secret_key: str
