@@ -57,6 +57,57 @@ class ToolRegistry:
             for tool in self._tools.values()
         ]
 
+    @staticmethod
+    def _tools_for_only_use(prompt: str, tools: list) -> list:
+        """
+        If the prompt says "only use github/slack/web/memory/
+        knowledge", return just the tools of those groups.
+        Returns [] when nothing matches, so callers fall back
+        to the normal selection.
+        """
+
+        text = prompt.lower()
+
+        def is_github(t) -> bool:
+            return getattr(t, "plugin_name", None) == "github"
+
+        def is_slack(t) -> bool:
+            return (
+                getattr(t, "plugin_name", None) == "slack"
+                or t.name.startswith("slack_")
+            )
+
+        scopes = [
+            (("only use github",), is_github),
+            (("only use slack",), is_slack),
+            (
+                (
+                    "only use web search",
+                    "only use the web",
+                    "only use web",
+                ),
+                lambda t: "web" in t.name.lower(),
+            ),
+            (
+                ("only use memory",),
+                lambda t: "memory" in t.name.lower(),
+            ),
+            (
+                ("only use knowledge",),
+                lambda t: "knowledge" in t.name.lower(),
+            ),
+        ]
+
+        selected = []
+
+        for phrases, matcher in scopes:
+            if any(p in text for p in phrases):
+                for tool in tools:
+                    if matcher(tool) and tool not in selected:
+                        selected.append(tool)
+
+        return selected
+
     def definitions_for_prompt(
         self,
         prompt: str,
@@ -71,8 +122,20 @@ class ToolRegistry:
 
         tools = self.list_tools()
 
+        scoped = self._tools_for_only_use(prompt, tools)
+
+        if scoped:
+            tools = scoped
+
         if len(tools) <= max_tools:
-            return self.definitions()
+            return [
+                ToolDefinition(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=tool.parameters,
+                )
+                for tool in tools
+            ]
 
         def normalize_word(word: str) -> str:
             word = word.strip(

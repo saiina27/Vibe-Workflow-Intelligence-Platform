@@ -963,6 +963,18 @@ class GroqProvider(AIProvider):
         if tools:
             extra_kwargs["tools"] = tools
             extra_kwargs["tool_choice"] = "auto"
+        else:
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "You already have all the tool results "
+                        "you need. Do not call any tools. Write "
+                        "the final answer to my question now, "
+                        "using only the results above."
+                    ),
+                }
+            )
 
         response_stream = (
             self.client.chat.completions.create(
