@@ -6,7 +6,10 @@ from app.ai.tools.permissions import (
 )
 from app.ai.tools.registry import ToolRegistry
 from app.ai.tools.web_search_tool import WebSearchTool
-from app.mcp.runtime import mcp_integration_manager
+from app.mcp.runtime import (
+    mcp_integration_manager,
+    mcp_permission_service,
+)
 
 
 class ToolRouter:
@@ -89,6 +92,11 @@ class ToolRouter:
 
             try:
 
+                mcp_permission_service.add_workspace_plugin(
+                    context.workspace_id,
+                    "slack",
+                )
+
                 registered = (
                     await self.mcp_integration_manager
                     .connect_slack(
@@ -122,23 +130,47 @@ class ToolRouter:
 
             try:
 
-                registered = (
-                    await self.mcp_integration_manager
-                    .connect_github(
-                        db=context.db,
-                        user_id=context.user_id,
-                        registry=registry,
+                from app.services.external_integration_service import (
+                    get_user_integration,
+                )
+
+                github_integration = get_user_integration(
+                    db=context.db,
+                    user_id=context.user_id,
+                    provider="github",
+                )
+
+                if github_integration is None:
+
+                    print(
+                        "GitHub MCP unavailable: "
+                        "GitHub is not connected."
                     )
-                )
 
-                print(
-                    "🔌 GitHub MCP connected."
-                )
+                else:
 
-                print(
-                    f"🔌 GitHub MCP tools registered: "
-                    f"{registered}"
-                )
+                    mcp_permission_service.add_workspace_plugin(
+                        context.workspace_id,
+                        "github",
+                    )
+
+                    registered = (
+                        await self.mcp_integration_manager
+                        .connect_github(
+                            db=context.db,
+                            user_id=context.user_id,
+                            registry=registry,
+                        )
+                    )
+
+                    print(
+                        "🔌 GitHub MCP connected."
+                    )
+
+                    print(
+                        f"🔌 GitHub MCP tools registered: "
+                        f"{registered}"
+                    )
 
             except Exception as exc:
 

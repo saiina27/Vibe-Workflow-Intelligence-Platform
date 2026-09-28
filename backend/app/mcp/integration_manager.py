@@ -4,7 +4,6 @@ import asyncio
 
 from sqlalchemy.orm import Session
 
-from app.mcp.slack_search_tool import SlackSearchTool
 from app.ai.tools.registry import ToolRegistry
 from app.core.config import settings
 from app.mcp.registry import MCPPluginRegistry
@@ -392,18 +391,6 @@ class MCPIntegrationManager:
         registered = await discovery.discover(
             registry
         )
-
-        if "slack_search" not in [
-            tool.name
-            for tool in registry.list_tools()
-        ]:
-            registry.register(
-                SlackSearchTool(
-                    client=client
-                )
-            )
-
-            registered += 1
 
         return registered
 

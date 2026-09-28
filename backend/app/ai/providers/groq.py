@@ -132,7 +132,7 @@ class GroqProvider(AIProvider):
         request: AIRequest,
     ) -> list[dict[str, Any]]:
 
-        return [
+        tools = [
             {
                 "type": "function",
                 "function": {
@@ -143,6 +143,8 @@ class GroqProvider(AIProvider):
             }
             for tool in request.tools
         ]
+
+        return tools
 
     # ========================================================
     # TOOL CALL PARSER

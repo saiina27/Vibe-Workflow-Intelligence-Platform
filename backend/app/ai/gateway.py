@@ -244,7 +244,7 @@ class AIGateway:
         # STEP 2: ATTACH TOOL DEFINITIONS
         # ====================================================
 
-        request.tools = registry.definitions()
+        request.tools = registry.definitions_for_prompt(request.prompt)
 
         if not request.tools:
 
@@ -349,6 +349,16 @@ class AIGateway:
                         f"🔧 Tool calls: "
                         f"{len(event.tool_calls)}"
                     )
+
+                    for tool_call in event.tool_calls:
+                        print(
+                            f"🔧 Tool name: "
+                            f"{tool_call.name}"
+                        )
+                        print(
+                            f"🔧 Tool arguments: "
+                            f"{tool_call.arguments}"
+                        )
 
                     # -----------------------------------------
                     # REAL STREAMING TOOL EXECUTION
@@ -534,7 +544,7 @@ class AIGateway:
         # STEP 2: ATTACH TOOL DEFINITIONS
         # ====================================================
 
-        request.tools = registry.definitions()
+        request.tools = registry.definitions_for_prompt(request.prompt)
 
         if not request.tools:
 

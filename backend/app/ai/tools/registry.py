@@ -56,3 +56,114 @@ class ToolRegistry:
             )
             for tool in self._tools.values()
         ]
+
+    def definitions_for_prompt(
+        self,
+        prompt: str,
+        max_tools: int = 8,
+    ) -> list[ToolDefinition]:
+        """
+        Return the most relevant tool definitions for a provider request.
+
+        The complete registry remains available for execution. This method
+        only limits the tool definitions exposed to the model.
+        """
+
+        tools = self.list_tools()
+
+        if len(tools) <= max_tools:
+            return self.definitions()
+
+        def normalize_word(word: str) -> str:
+            word = word.strip(
+                ".,!?;:()[]{}\"'"
+            ).lower()
+
+            if word.endswith("ies") and len(word) > 4:
+                return word[:-3] + "y"
+
+            if word.endswith("s") and len(word) > 3:
+                return word[:-1]
+
+            return word
+
+        prompt_words = {
+            normalize_word(word)
+            for word in prompt.split()
+            if len(normalize_word(word)) > 2
+        }
+
+        # -------------------------------------------------
+        # GITHUB / CODEBASE INTENT BOOST
+        # -------------------------------------------------
+        github_intent_words = {
+            "github",
+            "repository",
+            "repo",
+            "codebase",
+            "code",
+            "project",
+            "source",
+            "files",
+            "file",
+            "architecture",
+            "readme",
+        }
+
+        github_intent = bool(
+            prompt_words & github_intent_words
+        )
+
+        github_priority_tools = {
+            "search_repositories",
+            "search_code",
+            "get_file_contents",
+            "get_commit",
+            "list_branches",
+        }
+
+        scored_tools = []
+
+        for index, tool in enumerate(tools):
+            tool_words = {
+                normalize_word(word)
+                for word in (
+                    tool.name.replace("_", " ")
+                    + " "
+                    + tool.description
+                ).split()
+                if len(normalize_word(word)) > 2
+            }
+
+            score = len(
+                prompt_words & tool_words
+            )
+
+            if (
+                github_intent
+                and tool.name in github_priority_tools
+            ):
+                score += 100
+
+            scored_tools.append(
+                (score, -index, tool)
+            )
+
+        scored_tools.sort(
+            key=lambda item: (item[0], item[1]),
+            reverse=True,
+        )
+
+        selected_tools = [
+            item[2]
+            for item in scored_tools[:max_tools]
+        ]
+
+        return [
+            ToolDefinition(
+                name=tool.name,
+                description=tool.description,
+                parameters=tool.parameters,
+            )
+            for tool in selected_tools
+        ]

@@ -1,13 +1,18 @@
 from dataclasses import replace
 import secrets
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.mcp.oauth.slack import SlackOAuthProvider
 from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db
+from app.core.config import settings
 from app.mcp.oauth.github import GitHubOAuthProvider
 from app.models.user import User
-from app.services.external_integration_service import save_oauth_token
+from app.services.external_integration_service import (
+    get_user_integration,
+    save_oauth_token,
+)
 from app.services.oauth_state_service import (
     consume_oauth_state,
     create_oauth_state,
@@ -52,6 +57,20 @@ def github_connect(
         "authorization_url": authorization_url,
     }
 
+@router.get("/github/status")
+def github_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    integration = get_user_integration(
+        db=db,
+        user_id=current_user.id,
+        provider="github",
+    )
+
+    return {
+        "connected": integration is not None,
+    }
 
 @router.get("/github/callback")
 async def github_callback(
@@ -133,11 +152,10 @@ async def github_callback(
             detail="Failed to complete GitHub OAuth.",
         ) from exc
 
-    return {
-        "message": "GitHub connected successfully.",
-        "provider": integration.provider,
-        "provider_user_id": integration.provider_user_id,
-    }
+    return RedirectResponse(
+        url=settings.frontend_url,
+        status_code=status.HTTP_303_SEE_OTHER,
+    )
 
 @router.get("/slack/connect")
 def slack_connect(
@@ -178,6 +196,21 @@ def slack_connect(
 
     return {
         "authorization_url": authorization_url,
+    }
+
+@router.get("/slack/status")
+def slack_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    integration = get_user_integration(
+        db=db,
+        user_id=current_user.id,
+        provider="slack",
+    )
+
+    return {
+        "connected": integration is not None,
     }
 
 @router.get("/slack/callback")
@@ -275,9 +308,8 @@ async def slack_callback(
             detail="Failed to complete Slack OAuth.",
         ) from exc
 
-    return {
-        "message": "Slack connected successfully.",
-        "provider": integration.provider,
-        "provider_user_id": integration.provider_user_id,
-    }
+    return RedirectResponse(
+        url=settings.frontend_url,
+        status_code=status.HTTP_302_FOUND,
+    )
 

@@ -83,6 +83,21 @@ class MCPPermissionService:
             plugins
         )
 
+    def add_workspace_plugin(
+        self,
+        workspace_id: int,
+        plugin_name: str,
+    ) -> None:
+        """
+        Allow one MCP plugin for a workspace without
+        removing plugins that are already allowed.
+        """
+
+        self._workspace_plugins.setdefault(
+            workspace_id,
+            set(),
+        ).add(plugin_name)
+
     def set_user_plugins(
         self,
         user_id: int,

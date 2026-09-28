@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     port: int
 
     cors_origins: str = "http://localhost:5173"
+    frontend_url: str = "http://localhost:5173"
 
     database_url: str
 

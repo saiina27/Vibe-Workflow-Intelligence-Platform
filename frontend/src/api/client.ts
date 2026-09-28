@@ -132,6 +132,34 @@ export async function getCurrentUser(
 }
 
 /* =========================
+OAUTH / INTEGRATIONS
+========================= */
+
+export async function getGitHubStatus() {
+  return authenticatedFetch(
+    '/oauth/github/status',
+  )
+}
+
+export async function connectGitHub() {
+  return authenticatedFetch(
+    '/oauth/github/connect',
+  )
+}
+
+export async function getSlackStatus() {
+  return authenticatedFetch(
+    '/oauth/slack/status',
+  )
+}
+
+export async function connectSlack() {
+  return authenticatedFetch(
+    '/oauth/slack/connect',
+  )
+}
+
+/* =========================
 WORKSPACES
 ========================= */
 

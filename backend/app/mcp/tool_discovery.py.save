@@ -39,10 +39,6 @@ class MCPToolDiscovery:
         """
 
         tools = self.client.list_tools()
-        print(
-            f"🔎 {self.plugin_name.capitalize()} MCP DISCOVERED TOOLS:",
-            [tool.name for tool in tools],
-        )
 
         registered = 0
 

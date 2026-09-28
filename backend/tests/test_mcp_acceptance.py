@@ -277,8 +277,8 @@ async def main() -> None:
         }
 
         check(
-            "slack_search" in slack_tool_names,
-            "Slack search bridge registered",
+            "slack_search_public" in slack_tool_names,
+            "Slack search tool registered",
         )
 
         # ----------------------------------------------------
@@ -290,12 +290,14 @@ async def main() -> None:
         slack_search = next(
             tool
             for tool in slack_tools
-            if tool.name == "slack_search"
+            if tool.name == "slack_search_public"
         )
 
         try:
             slack_result = slack_search.execute(
-                query="Vibe MCP",
+                keywords=["vibe"],
+                natural_language_query="Search Slack for vibe",
+                response_format="concise",
             )
 
             check(

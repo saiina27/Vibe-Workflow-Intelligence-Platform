@@ -9,7 +9,11 @@ import {
   createChat,
   deleteChat,
   getChats,
+  connectGitHub,
+  connectSlack,
   getCurrentUser,
+  getGitHubStatus,
+  getSlackStatus,
   getMessages,
   getWorkspaces,
   createWorkspace,
@@ -47,6 +51,12 @@ function App() {
   )
 
   const [showSignup, setShowSignup] =
+    useState(false)
+
+  const [githubConnected, setGithubConnected] =
+    useState(false)
+
+  const [slackConnected, setSlackConnected] =
     useState(false)
 
   const [workspace, setWorkspace] =
@@ -108,6 +118,20 @@ function App() {
 
         await getCurrentUser(currentToken)
 
+        const githubStatus =
+          await getGitHubStatus()
+
+        setGithubConnected(
+          githubStatus.connected,
+        )
+
+        const slackStatus =
+          await getSlackStatus()
+
+        setSlackConnected(
+          slackStatus.connected,
+        )
+
         let workspaces =
           await getWorkspaces()
 
@@ -157,6 +181,42 @@ function App() {
 
     loadWorkspace()
   }, [token])
+
+  async function handleGitHubConnect() {
+    try {
+      setError('')
+
+      const response =
+        await connectGitHub()
+
+      window.location.href =
+        response.authorization_url
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to connect GitHub',
+      )
+    }
+  }
+
+  async function handleSlackConnect() {
+    try {
+      setError('')
+
+      const response =
+        await connectSlack()
+
+      window.location.href =
+        response.authorization_url
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to connect Slack',
+      )
+    }
+  }
 
   /* =========================
   AUTHENTICATION
@@ -1152,6 +1212,72 @@ function App() {
           Vibe
         </div>
 
+        <div className="topbar-integrations">
+          <button
+            className="integration-button"
+            type="button"
+            onClick={
+              githubConnected
+                ? undefined
+                : handleGitHubConnect
+            }
+          >
+            <svg
+              className="integration-logo github-logo"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                fill="currentColor"
+                d="M12 .5C5.65.5.5 5.65.5 12c0 5.09 3.3 9.41 7.88 10.94.58.1.79-.25.79-.56v-2.17c-3.21.7-3.89-1.54-3.89-1.54-.53-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.95.1-.74.4-1.25.73-1.54-2.56-.29-5.26-1.28-5.26-5.7 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.18a11 11 0 0 1 5.79 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.77.12 3.06.74.81 1.19 1.84 1.19 3.1 0 4.43-2.7 5.41-5.27 5.69.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z"
+              />
+            </svg>
+
+            <span>
+              {githubConnected ? 'GitHub · Connected' : 'GitHub'}
+            </span>
+          </button>
+
+          <button
+            className="integration-button"
+            type="button"
+            onClick={
+              slackConnected
+                ? undefined
+                : handleSlackConnect
+            }
+          >
+            <svg
+              className="integration-logo slack-logo"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                fill="#36C5F0"
+                d="M6.5 15.5A2.5 2.5 0 1 1 4 13h2.5v2.5Zm1.25 0A2.5 2.5 0 1 1 10.25 18v-2.5H7.75Z"
+              />
+              <path
+                fill="#2EB67D"
+                d="M8.5 6.5A2.5 2.5 0 1 1 11 4v2.5H8.5Zm0 1.25A2.5 2.5 0 1 1 6 10.25H8.5V7.75Z"
+              />
+              <path
+                fill="#ECB22E"
+                d="M17.5 8.5A2.5 2.5 0 1 1 20 11h-2.5V8.5Zm-1.25 0A2.5 2.5 0 1 1 13.75 6v2.5h2.5Z"
+              />
+              <path
+                fill="#E01E5A"
+                d="M15.5 17.5A2.5 2.5 0 1 1 13 20v-2.5h2.5Zm0-1.25A2.5 2.5 0 1 1 18 13.75h-2.5v2.5Z"
+              />
+            </svg>
+
+            <span>
+              {slackConnected
+                ? 'Slack · Connected'
+                : 'Slack'}
+            </span>
+          </button>
+        </div>
+
         <button
           onClick={handleLogout}
         >
@@ -1223,9 +1349,46 @@ function App() {
           {!activeChat ? (
             <div className="welcome">
 
-              <h1>
-                Welcome to Vibe
-              </h1>
+              <div className="welcome-title">
+                <h1>
+                  Welcome to Vibe
+                </h1>
+
+                <svg
+                  className="vibe-eye"
+                  viewBox="0 0 64 40"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M4 20 C14 5, 50 5, 60 20 C50 35, 14 35, 4 20 Z"
+                    fill="none"
+                    stroke="#09090b"
+                    strokeWidth="3.2"
+                    strokeLinecap="round"
+                  />
+
+                  <path
+                    className="vibe-lashes"
+                    d="M17 9 L14 5 M23 7 L21 3 M30 6 L29 2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    className="vibe-pupil"
+                    d="M28 20 C28 14, 36 11, 40 15 C44 19, 42 27, 37 29 C32 31, 28 26, 28 20 Z"
+                    fill="currentColor"
+                  />
+                  <circle
+                    className="vibe-eye-highlight"
+                    cx="36"
+                    cy="19"
+                    r="2.5"
+                    fill="white"
+                  />
+                </svg>
+              </div>
 
               <p>
                 Create a chat to start

@@ -20,6 +20,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
+  background: #eef5f1;
   border-bottom: 1px solid #e4e4e7;
   box-sizing: border-box;
 }
@@ -703,3 +704,97 @@
     bottom: 76px;
   }
 }
+.topbar-integrations {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  margin-right: 16px;
+}
+
+.integration-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #27272a;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.integration-button:hover {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+}
+
+.integration-logo {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: block;
+}
+
+.github-logo {
+  color: #18181b;
+}
+
+.slack-logo {
+  width: 18px;
+  height: 18px;
+}
+
+.welcome-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.welcome-title h1 {
+  margin: 0;
+}
+
+.vibe-eye {
+  width: 36px;
+  height: 25px;
+  flex-shrink: 0;
+}
+
+
+.vibe-pupil,
+.vibe-eye-highlight {
+  animation: vibeLook 4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes vibeLook {
+  0%, 15% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(-3px, 1px);
+  }
+
+  40% {
+    transform: translate(3px, -1px);
+  }
+
+  55% {
+    transform: translate(2px, 2px);
+  }
+
+  70% {
+    transform: translate(-2px, -2px);
+  }
+
+  85%, 100% {
+    transform: translate(0, 0);
+  }
+}
+
