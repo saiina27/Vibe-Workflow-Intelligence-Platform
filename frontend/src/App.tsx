@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
 import Login from './components/Login'
@@ -20,6 +20,7 @@ import {
   renameChat,
   restoreChat,
   streamMessage,
+  uploadKnowledgeDocument,
 } from './api/client'
 
 import type {
@@ -100,6 +101,12 @@ function App() {
 
   const [error, setError] =
     useState('')
+
+  const [uploadStatus, setUploadStatus] =
+    useState('')
+
+  const fileInputRef =
+    useRef<HTMLInputElement | null>(null)
 
   /* =========================
   LOAD WORKSPACE + CHATS
@@ -799,6 +806,41 @@ function App() {
   }
 
   /* =========================
+  KNOWLEDGE UPLOAD
+  ========================= */
+
+  async function handleFileSelected(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file || !workspace) {
+      return
+    }
+
+    try {
+      setError('')
+      setUploadStatus(`Uploading ${file.name}...`)
+
+      await uploadKnowledgeDocument(
+        workspace.id,
+        file,
+      )
+
+      setUploadStatus(`✓ Indexed: ${file.name}`)
+    } catch (err) {
+      setUploadStatus('')
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to upload document',
+      )
+    }
+  }
+
+  /* =========================
   LOGOUT
   ========================= */
 
@@ -1460,7 +1502,34 @@ function App() {
                   MESSAGE COMPOSER
               ========================= */}
 
+              {uploadStatus && (
+                <p className="upload-status">
+                  {uploadStatus}
+                </p>
+              )}
+
               <div className="message-composer">
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.txt,.docx"
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelected}
+                />
+
+                <button
+                  type="button"
+                  className="attach-button"
+                  title="Upload a document (.pdf, .txt, .docx)"
+                  aria-label="Upload a document"
+                  onClick={() =>
+                    fileInputRef.current?.click()
+                  }
+                  disabled={loading}
+                >
+                  📎
+                </button>
 
                 <textarea
                   value={input}

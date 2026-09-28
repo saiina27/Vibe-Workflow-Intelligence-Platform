@@ -451,3 +451,48 @@ export async function streamMessage(
     reader.releaseLock()
   }
 }
+
+/* =========================
+KNOWLEDGE UPLOAD
+========================= */
+
+export async function uploadKnowledgeDocument(
+  workspaceId: number,
+  file: File,
+) {
+  const token =
+    localStorage.getItem('access_token')
+
+  const formData = new FormData()
+
+  formData.append(
+    'title',
+    file.name.replace(/\.[^/.]+$/, ''),
+  )
+  formData.append('file', file)
+
+  // No Content-Type header here: the browser must set
+  // the multipart boundary itself.
+  const response = await fetch(
+    `${API_BASE_URL}/workspaces/${workspaceId}/knowledge/upload`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    },
+  )
+
+  if (!response.ok) {
+    const error = await response
+      .json()
+      .catch(() => null)
+
+    throw new Error(
+      error?.detail || 'Upload failed',
+    )
+  }
+
+  return response.json()
+}
