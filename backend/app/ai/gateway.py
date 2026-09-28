@@ -468,6 +468,18 @@ class AIGateway:
                     # SAME PROVIDER WITH TOOL RESULTS
                     # -----------------------------------------
 
+                    # Last round: remove tools so the provider
+                    # must write a final answer from the results
+                    # it already has instead of asking for more.
+                    if iteration == (
+                        tool_calling.MAX_TOOL_ITERATIONS - 1
+                    ):
+                        print(
+                            "⚠️ Final round: tools disabled, "
+                            "forcing a final answer."
+                        )
+                        request.tools = []
+
                     provider_events = (
                         self._stream_provider_with_tool_results(
                             request=request,

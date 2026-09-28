@@ -141,7 +141,7 @@ class GroqProvider(AIProvider):
                     "parameters": tool.parameters,
                 },
             }
-            for tool in request.tools
+            for tool in (request.tools or [])
         ]
 
         return tools
@@ -956,15 +956,22 @@ class GroqProvider(AIProvider):
             request
         )
 
+        extra_kwargs: dict[str, Any] = {}
+
+        # No tools left (final round): do not send the
+        # tools parameter so the model must answer in text.
+        if tools:
+            extra_kwargs["tools"] = tools
+            extra_kwargs["tool_choice"] = "auto"
+
         response_stream = (
             self.client.chat.completions.create(
                 model=model,
                 messages=messages,
-                tools=tools,
-                tool_choice="auto",
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
                 stream=True,
+                **extra_kwargs,
             )
         )
 

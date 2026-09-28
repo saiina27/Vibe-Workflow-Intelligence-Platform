@@ -200,7 +200,7 @@ class GeminiProvider(AIProvider):
                 description=tool.description,
                 parametersJsonSchema=tool.parameters,
             )
-            for tool in request.tools
+            for tool in (request.tools or [])
         ]
 
     # ========================================================
@@ -220,9 +220,11 @@ class GeminiProvider(AIProvider):
 
         if not declarations:
 
-            raise ValueError(
-                "Gemini tool configuration requires "
-                "at least one tool declaration."
+            # Final round: no tools, so Gemini must answer
+            # in plain text.
+            return types.GenerateContentConfig(
+                temperature=request.temperature,
+                maxOutputTokens=request.max_tokens,
             )
 
         return types.GenerateContentConfig(
