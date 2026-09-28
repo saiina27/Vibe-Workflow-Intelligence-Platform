@@ -177,6 +177,27 @@ class ToolRegistry:
             prompt_words & github_intent_words
         )
 
+        # -------------------------------------------------
+        # KNOWLEDGE / DOCUMENT INTENT BOOST
+        # -------------------------------------------------
+        knowledge_intent_words = {
+            "document",
+            "doc",
+            "pdf",
+            "upload",
+            "uploaded",
+            "resume",
+            "marksheet",
+            "notes",
+            "percentage",
+            "file",
+            "certificate",
+        }
+
+        knowledge_intent = bool(
+            prompt_words & knowledge_intent_words
+        )
+
         github_priority_tools = {
             "search_repositories",
             "search_code",
@@ -205,6 +226,13 @@ class ToolRegistry:
             if (
                 github_intent
                 and tool.name in github_priority_tools
+            ):
+                score += 100
+
+            if (
+                knowledge_intent
+                and not github_intent
+                and tool.name == "search_knowledge"
             ):
                 score += 100
 
