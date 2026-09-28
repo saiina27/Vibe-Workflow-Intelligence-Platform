@@ -63,6 +63,24 @@ function App() {
   const [workspace, setWorkspace] =
     useState<Workspace | null>(null)
 
+  const [workspaces, setWorkspaces] =
+    useState<Workspace[]>([])
+
+  const [workspacesLoaded, setWorkspacesLoaded] =
+    useState(false)
+
+  const [workspaceMenuOpen, setWorkspaceMenuOpen] =
+    useState(false)
+
+  const [creatingWorkspace, setCreatingWorkspace] =
+    useState(false)
+
+  const [newWorkspaceName, setNewWorkspaceName] =
+    useState('')
+
+  const [workspaceBusy, setWorkspaceBusy] =
+    useState(false)
+
   const [chats, setChats] =
     useState<Chat[]>([])
 
@@ -108,6 +126,12 @@ function App() {
   const fileInputRef =
     useRef<HTMLInputElement | null>(null)
 
+  const [isListening, setIsListening] =
+    useState(false)
+
+  const recognitionRef =
+    useRef<any>(null)
+
   /* =========================
   LOAD WORKSPACE + CHATS
   ========================= */
@@ -139,44 +163,31 @@ function App() {
           slackStatus.connected,
         )
 
-        let workspaces =
+        const loadedWorkspaces: Workspace[] =
           await getWorkspaces()
 
-        if (!workspaces.length) {
-          const newWorkspace =
-            await createWorkspace('My Workspace')
+        setWorkspaces(loadedWorkspaces)
+        setWorkspacesLoaded(true)
 
-          workspaces = [newWorkspace]
-        }
-
-        const currentWorkspace =
-          workspaces[0]
-
-        setWorkspace(currentWorkspace)
-
-        const workspaceChats =
-          await getChats(
-            currentWorkspace.id,
-          )
-
-        setChats(workspaceChats)
-
-        if (workspaceChats.length > 0) {
-          const firstChat =
-            workspaceChats[0]
-
-          setActiveChat(firstChat)
-
-          const chatMessages =
-            await getMessages(
-              firstChat.id,
-            )
-
-          setMessages(chatMessages)
-        } else {
+        if (!loadedWorkspaces.length) {
+          setWorkspace(null)
+          setChats([])
           setActiveChat(null)
           setMessages([])
+          return
         }
+
+        const savedId = Number(
+          localStorage.getItem('workspace_id'),
+        )
+
+        const initialWorkspace =
+          loadedWorkspaces.find(
+            (item: Workspace) =>
+              item.id === savedId,
+          ) ?? loadedWorkspaces[0]
+
+        await openWorkspace(initialWorkspace)
       } catch (err) {
         setError(
           err instanceof Error
@@ -223,6 +234,164 @@ function App() {
           : 'Failed to connect Slack',
       )
     }
+  }
+
+  /* =========================
+  WORKSPACES
+  ========================= */
+
+  async function openWorkspace(
+    target: Workspace,
+  ) {
+    setWorkspace(target)
+
+    try {
+      localStorage.setItem(
+        'workspace_id',
+        String(target.id),
+      )
+    } catch {
+      // storage unavailable: selection just won't persist
+    }
+
+    setToolActivities([])
+    setUploadStatus('')
+    setOpenMenuChatId(null)
+    setRenamingChatId(null)
+    setRenameTitle('')
+    setActiveChat(null)
+    setMessages([])
+
+    const workspaceChats: Chat[] =
+      await getChats(target.id)
+
+    setChats(workspaceChats)
+
+    const firstChat = workspaceChats.find(
+      (chat) => chat.status !== 'archived',
+    )
+
+    if (firstChat) {
+      setActiveChat(firstChat)
+      setMessages(
+        await getMessages(firstChat.id),
+      )
+    }
+  }
+
+  async function handleSwitchWorkspace(
+    target: Workspace,
+  ) {
+    setWorkspaceMenuOpen(false)
+    setCreatingWorkspace(false)
+
+    if (target.id === workspace?.id) {
+      return
+    }
+
+    try {
+      setError('')
+      await openWorkspace(target)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to switch workspace',
+      )
+    }
+  }
+
+  async function handleCreateWorkspace() {
+    const name = newWorkspaceName.trim()
+
+    if (!name) {
+      setError('Workspace name cannot be empty.')
+      return
+    }
+
+    try {
+      setError('')
+      setWorkspaceBusy(true)
+
+      const created: Workspace =
+        await createWorkspace(name)
+
+      setWorkspaces((current) => [
+        ...current,
+        created,
+      ])
+      setWorkspacesLoaded(true)
+      setNewWorkspaceName('')
+      setCreatingWorkspace(false)
+      setWorkspaceMenuOpen(false)
+
+      await openWorkspace(created)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to create workspace',
+      )
+    } finally {
+      setWorkspaceBusy(false)
+    }
+  }
+
+  function renderCreateWorkspaceForm() {
+    return (
+      <div className="workspace-create-form">
+        <input
+          className="workspace-create-input"
+          value={newWorkspaceName}
+          onChange={(event) =>
+            setNewWorkspaceName(
+              event.target.value,
+            )
+          }
+          placeholder="Workspace name"
+          maxLength={100}
+          autoFocus
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              handleCreateWorkspace()
+            }
+
+            if (event.key === 'Escape') {
+              setCreatingWorkspace(false)
+              setNewWorkspaceName('')
+            }
+          }}
+        />
+
+        <div className="workspace-create-actions">
+          {workspaces.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setCreatingWorkspace(false)
+                setNewWorkspaceName('')
+              }}
+            >
+              Cancel
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleCreateWorkspace}
+            disabled={
+              workspaceBusy ||
+              !newWorkspaceName.trim()
+            }
+          >
+            {workspaceBusy
+              ? 'Creating...'
+              : 'Create'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
   /* =========================
@@ -671,6 +840,56 @@ function App() {
     }
   }
 
+  function toggleVoiceInput() {
+    const SpeechRecognition =
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
+
+    if (!SpeechRecognition) {
+      setError("Voice input is not supported in this browser.")
+      return
+    }
+
+    if (isListening) {
+      recognitionRef.current?.stop()
+      setIsListening(false)
+      return
+    }
+
+    const recognition = new SpeechRecognition()
+
+    recognition.lang = "en-IN"
+    recognition.interimResults = false
+    recognition.continuous = false
+
+    recognition.onstart = () => {
+      setError("")
+      setIsListening(true)
+    }
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript
+
+      setInput((currentInput) =>
+        currentInput.trim()
+          ? `${currentInput.trim()} ${transcript}`
+          : transcript,
+      )
+    }
+
+    recognition.onerror = () => {
+      setIsListening(false)
+      setError("Could not capture your voice. Please try again.")
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
+  }
+
   /* =========================
   SEND MESSAGE — STREAMING
   ========================= */
@@ -852,6 +1071,10 @@ function App() {
     setToken(null)
     setShowSignup(false)
     setWorkspace(null)
+    setWorkspaces([])
+    setWorkspacesLoaded(false)
+    setWorkspaceMenuOpen(false)
+    setCreatingWorkspace(false)
     setChats([])
     setActiveChat(null)
     setMessages([])
@@ -1254,6 +1477,68 @@ function App() {
           Vibe
         </div>
 
+        <div className="workspace-switcher">
+          <button
+            type="button"
+            className="workspace-button"
+            onClick={() =>
+              setWorkspaceMenuOpen(
+                (open) => !open,
+              )
+            }
+          >
+            <span className="workspace-label">
+              Workspace
+            </span>
+            <span className="workspace-name">
+              {workspace
+                ? workspace.name
+                : 'No workspace'}
+            </span>
+            <span>▾</span>
+          </button>
+
+          {workspaceMenuOpen && (
+            <div className="workspace-dropdown">
+              {workspaces.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`workspace-option ${
+                    workspace?.id === item.id
+                      ? 'active'
+                      : ''
+                  }`}
+                  onClick={() =>
+                    handleSwitchWorkspace(item)
+                  }
+                >
+                  {item.name}
+                  {workspace?.id === item.id
+                    ? ' ✓'
+                    : ''}
+                </button>
+              ))}
+
+              <div className="workspace-divider" />
+
+              {creatingWorkspace ? (
+                renderCreateWorkspaceForm()
+              ) : (
+                <button
+                  type="button"
+                  className="workspace-option workspace-create"
+                  onClick={() =>
+                    setCreatingWorkspace(true)
+                  }
+                >
+                  + Create Workspace
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="topbar-integrations">
           <button
             className="integration-button"
@@ -1342,6 +1627,7 @@ function App() {
           <button
             className="new-chat-button"
             onClick={handleNewChat}
+            disabled={!workspace}
           >
             + New Chat
           </button>
@@ -1388,7 +1674,26 @@ function App() {
 
         <main className="chat-area">
 
-          {!activeChat ? (
+          {!workspace ? (
+            workspacesLoaded ? (
+              <div className="welcome">
+                <div className="welcome-title">
+                  <h1>Create your first workspace</h1>
+                </div>
+
+                <p>
+                  A workspace holds your chats,
+                  memory and knowledge.
+                </p>
+
+                {renderCreateWorkspaceForm()}
+              </div>
+            ) : (
+              <div className="welcome">
+                <p>Loading...</p>
+              </div>
+            )
+          ) : !activeChat ? (
             <div className="welcome">
 
               <div className="welcome-title">
@@ -1528,7 +1833,18 @@ function App() {
                   }
                   disabled={loading}
                 >
-                  📎
+                  +
+                </button>
+
+                <button
+                  type="button"
+                  className={`voice-button ${isListening ? 'listening' : ''}`}
+                  title={isListening ? 'Stop listening' : 'Voice input'}
+                  aria-label={isListening ? 'Stop listening' : 'Voice input'}
+                  onClick={toggleVoiceInput}
+                  disabled={loading}
+                >
+                  {isListening ? '⏹' : '🎤'}
                 </button>
 
                 <textarea

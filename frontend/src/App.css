@@ -798,3 +798,158 @@
   }
 }
 
+
+/* =========================
+   ATTACH BUTTON
+========================= */
+.attach-button {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f4f4f5;
+  color: #18181b;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.attach-button:hover {
+  background: #e4e4e7;
+}
+
+.attach-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* =========================
+   VOICE BUTTON
+========================= */
+.voice-button {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: #f4f4f5;
+  color: #18181b;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.voice-button:hover {
+  background: #e4e4e7;
+}
+
+.voice-button.listening {
+  background: #18181b;
+  color: #ffffff;
+}
+
+.voice-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+
+/* =========================
+WORKSPACE SWITCHER
+========================= */
+
+.workspace-switcher {
+  position: relative;
+  margin-left: 16px;
+}
+
+.workspace-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.workspace-label {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.workspace-name {
+  font-weight: 600;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  padding: 6px;
+  background: #fff;
+  color: #09090b;
+  border: 1px solid #e4e4e7;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 50;
+}
+
+.workspace-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.workspace-option:hover,
+.workspace-option.active {
+  background: #f4f4f5;
+}
+
+.workspace-create {
+  font-weight: 600;
+}
+
+.workspace-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: #e4e4e7;
+}
+
+.workspace-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px;
+}
+
+.workspace-create-input {
+  padding: 8px 10px;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+}
+
+.workspace-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
