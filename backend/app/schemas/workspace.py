@@ -23,3 +23,6 @@ class WorkspaceResponse(BaseModel):
     model_config = {
         "from_attributes": True
     }
+
+class WorkspaceRename(BaseModel):
+    name: str

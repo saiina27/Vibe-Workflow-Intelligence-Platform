@@ -5,6 +5,7 @@ from app.models.workspace import Workspace
 from app.repositories.workspace_repository import (
     create_workspace,
     get_user_workspaces,
+    update_workspace,
 )
 
 
@@ -62,3 +63,22 @@ def require_workspace_access(
         )
 
     return workspace
+
+def rename_workspace(
+    db: Session,
+    workspace_id: int,
+    user_id: int,
+    name: str,
+):
+    workspace = require_workspace_access(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=user_id,
+    )
+
+    workspace.name = name.strip()
+
+    return update_workspace(
+        db=db,
+        workspace=workspace,
+    )

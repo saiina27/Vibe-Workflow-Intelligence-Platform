@@ -5,11 +5,13 @@ from app.dependencies.database import get_db
 from app.schemas.workspace import (
     WorkspaceCreate,
     WorkspaceResponse,
+    WorkspaceRename,
 )
 from app.dependencies.auth import get_current_user
 from app.services.workspace_service import (
     create_new_workspace,
     list_workspaces,
+    rename_workspace,
 )
 
 router = APIRouter(
@@ -46,4 +48,21 @@ def get_workspaces(
     return list_workspaces(
         db=db,
         user_id=current_user.id,
+    )
+
+@router.patch(
+    "/{workspace_id}",
+    response_model=WorkspaceResponse,
+)
+def update_workspace_name(
+    workspace_id: int,
+    request: WorkspaceRename,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return rename_workspace(
+        db=db,
+        workspace_id=workspace_id,
+        user_id=current_user.id,
+        name=request.name,
     )

@@ -61,6 +61,122 @@ chat_repository = ChatRepository()
 memory_repository = MemoryRepository()
 memory_decision_service = MemoryDecisionService()
 memory_retriever = MemoryRetriever()
+
+
+def _is_memory_confirmation_request(
+    db,
+    chat_id: int,
+) -> bool:
+    """
+    Check whether the latest assistant message is asking
+    the user to confirm saving a specific memory.
+    """
+
+    history = get_messages_for_ai(
+        db=db,
+        chat_id=chat_id,
+    )
+
+    if not history:
+        return False
+
+    latest_assistant = next(
+        (
+            message
+            for message in reversed(history)
+            if getattr(message, "role", None) == "assistant"
+        ),
+        None,
+    )
+
+    if latest_assistant is None:
+        return False
+
+    content = (
+        getattr(latest_assistant, "content", "")
+        or ""
+    ).lower()
+
+    return (
+        "remember this specific detail" in content
+        and "future chats" in content
+    )
+
+
+def _is_confirmation_response(content: str) -> bool:
+    """
+    Recognize a concise yes/no response to a pending
+    memory confirmation.
+    """
+
+    normalized = (
+        content.strip()
+        .lower()
+        .rstrip(".!?")
+    )
+
+    return normalized in {
+        "yes",
+        "y",
+        "yeah",
+        "yep",
+        "sure",
+        "okay",
+        "ok",
+        "no",
+        "n",
+        "nope",
+        "nah",
+    }
+
+
+def _is_positive_confirmation(content: str) -> bool:
+    normalized = (
+        content.strip()
+        .lower()
+        .rstrip(".!?")
+    )
+
+    return normalized in {
+        "yes",
+        "y",
+        "yeah",
+        "yep",
+        "sure",
+        "okay",
+        "ok",
+    }
+
+
+def _get_previous_user_message(
+    db,
+    chat_id: int,
+) -> str | None:
+    """
+    Return the user message immediately before the
+    current confirmation response.
+    """
+
+    history = get_messages_for_ai(
+        db=db,
+        chat_id=chat_id,
+    )
+
+    if len(history) < 2:
+        return None
+
+    current_index = len(history) - 1
+
+    if getattr(history[current_index], "role", None) != "user":
+        return None
+
+    for message in reversed(
+        history[:current_index]
+    ):
+        if getattr(message, "role", None) == "user":
+            return getattr(message, "content", None)
+
+    return None
 chat_title_generator = ChatTitleGenerator()
 topic_detector = TopicDetector()
 knowledge_retriever = KnowledgeRetriever()
@@ -1092,45 +1208,98 @@ def stream_ai_response(
     # 4. SPECIAL INTENTS
     # ========================================================
 
-    if intent == Intent.REMEMBER:
+    # ========================================================
+    # MEMORY CONFIRMATION
+    # ========================================================
+
+    if (
+        _is_confirmation_response(content)
+        and _is_memory_confirmation_request(
+            db=db,
+            chat_id=chat_id,
+        )
+    ):
 
         try:
 
-            memory_data = extract_memory(
-                content
+            previous_user_message = (
+                _get_previous_user_message(
+                    db=db,
+                    chat_id=chat_id,
+                )
             )
 
-            memory = MemoryCreate(
-                memory_type=memory_data["memory_type"],
-                title=memory_data["title"],
-                content=memory_data["content"],
-                importance=memory_data.get(
-                    "importance",
-                    5,
-                ),
-            )
+            if _is_positive_confirmation(content):
 
-            memory_decision_service.process_memory(
+                if not previous_user_message:
+                    raise ValueError(
+                        "Unable to recover the memory detail "
+                        "for confirmation."
+                    )
+
+                memory_data = extract_memory(
+                    previous_user_message
+                )
+
+                memory = MemoryCreate(
+                    memory_type=memory_data["memory_type"],
+                    title=memory_data["title"],
+                    content=memory_data["content"],
+                    importance=memory_data.get(
+                        "importance",
+                        5,
+                    ),
+                )
+
+                memory_decision_service.process_memory(
+                    db=db,
+                    workspace_id=chat.workspace_id,
+                    memory=memory,
+                )
+
+                message = (
+                    "Got it bro, I’ll remember that "
+                    "for future chats."
+                )
+
+            else:
+
+                message = (
+                    "No problem bro, I won’t save it."
+                )
+
+            create_message(
                 db=db,
-                workspace_id=chat.workspace_id,
-                memory=memory,
+                chat_id=chat_id,
+                role="user",
+                content=content,
             )
 
-            message = (
-                "🧠 Memory has been saved successfully."
+            create_message(
+                db=db,
+                chat_id=chat_id,
+                role="assistant",
+                content=message,
             )
 
             yield message
-
             return
 
         except Exception:
 
             logger.exception(
-                "Streaming REMEMBER intent failed."
+                "Streaming memory confirmation failed."
             )
 
             raise
+
+    if intent == Intent.REMEMBER:
+
+        # Explicit memory requests continue through the
+        # normal AI flow so the assistant can respond
+        # conversationally instead of using a canned
+        # success message.
+        intent = Intent.CHAT
 
     if intent == Intent.SAVE_SUMMARY:
 

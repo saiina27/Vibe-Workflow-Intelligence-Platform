@@ -22,3 +22,11 @@ def get_user_workspaces(
         .filter(Workspace.user_id == user_id)
         .all()
     )
+
+def update_workspace(
+    db: Session,
+    workspace: Workspace,
+):
+    db.commit()
+    db.refresh(workspace)
+    return workspace

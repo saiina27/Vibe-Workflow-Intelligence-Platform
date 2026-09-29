@@ -1,3 +1,5 @@
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 
@@ -17,6 +19,7 @@ import {
   getMessages,
   getWorkspaces,
   createWorkspace,
+  renameWorkspace,
   renameChat,
   restoreChat,
   streamMessage,
@@ -90,6 +93,12 @@ function App() {
 
   const [workspaceBusy, setWorkspaceBusy] =
     useState(false)
+
+  const [renamingWorkspace, setRenamingWorkspace] =
+    useState(false)
+
+  const [workspaceRenameName, setWorkspaceRenameName] =
+    useState('')
 
   const [chats, setChats] =
     useState<Chat[]>([])
@@ -347,6 +356,52 @@ function App() {
           ? err.message
           : 'Failed to switch workspace',
       )
+    }
+  }
+
+  async function handleRenameWorkspace() {
+    if (!workspace) {
+      return
+    }
+
+    const name = workspaceRenameName.trim()
+
+    if (!name) {
+      setError('Workspace name cannot be empty.')
+      return
+    }
+
+    try {
+      setError('')
+      setWorkspaceBusy(true)
+
+      const updated: Workspace =
+        await renameWorkspace(
+          workspace.id,
+          name,
+        )
+
+      setWorkspace(updated)
+
+      setWorkspaces((current) =>
+        current.map((item) =>
+          item.id === updated.id
+            ? updated
+            : item,
+        ),
+      )
+
+      setWorkspaceRenameName('')
+      setRenamingWorkspace(false)
+      setWorkspaceMenuOpen(false)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to rename workspace',
+      )
+    } finally {
+      setWorkspaceBusy(false)
     }
   }
 
@@ -2064,7 +2119,73 @@ function App() {
                 </button>
               ))}
 
-              <div className="workspace-divider" />
+              {workspace && !creatingWorkspace && (
+        <>
+          <button
+            type="button"
+            className="workspace-option workspace-rename"
+            onClick={() => {
+              setWorkspaceRenameName(workspace.name)
+              setRenamingWorkspace(true)
+            }}
+          >
+            ✎ Rename Workspace
+          </button>
+
+          {renamingWorkspace && (
+            <div className="workspace-create-form">
+              <input
+                className="workspace-create-input"
+                value={workspaceRenameName}
+                onChange={(event) =>
+                  setWorkspaceRenameName(event.target.value)
+                }
+                placeholder="Workspace name"
+                maxLength={100}
+                autoFocus
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    handleRenameWorkspace()
+                  }
+
+                  if (event.key === 'Escape') {
+                    setRenamingWorkspace(false)
+                    setWorkspaceRenameName('')
+                  }
+                }}
+              />
+
+              <div className="workspace-create-actions">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenamingWorkspace(false)
+                    setWorkspaceRenameName('')
+                  }}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRenameWorkspace}
+                  disabled={
+                    workspaceBusy ||
+                    !workspaceRenameName.trim()
+                  }
+                >
+                  {workspaceBusy
+                    ? 'Saving...'
+                    : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="workspace-divider" />
 
               {creatingWorkspace ? (
                 renderCreateWorkspaceForm()
@@ -2356,7 +2477,9 @@ function App() {
                         </strong>
 
                         <p>
-                          {message.content}
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {message.content}
+                          </ReactMarkdown>
                         </p>
 
                       </div>

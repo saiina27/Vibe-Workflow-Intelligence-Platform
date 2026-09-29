@@ -169,6 +169,22 @@ export async function getWorkspaces() {
   )
 }
 
+
+export async function renameWorkspace(
+  workspaceId: number,
+  name: string,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        name,
+      }),
+    },
+  )
+}
+
 export async function createWorkspace(
   name: string,
 ) {

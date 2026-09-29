@@ -1190,3 +1190,28 @@ COLLAPSIBLE SIDEBAR
 .sidebar.open {
   transform: translateX(0);
 }
+
+/* Markdown tables */
+.chat-message table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.chat-message th,
+.chat-message td {
+  text-align: left;
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.chat-message th:first-child,
+.chat-message td:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+
+.chat-message th:last-child,
+.chat-message td:last-child {
+  padding-right: 0;
+}

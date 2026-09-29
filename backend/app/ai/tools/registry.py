@@ -198,6 +198,50 @@ class ToolRegistry:
             prompt_words & knowledge_intent_words
         )
 
+        # -------------------------------------------------
+        # MEMORY INTENT BOOST
+        # -------------------------------------------------
+        memory_intent_words = {
+            "remember",
+            "recall",
+            "memory",
+            "memories",
+            "remembered",
+            "forgot",
+            "forget",
+            "stored",
+            "saved",
+        }
+
+        memory_intent = bool(
+            prompt_words & memory_intent_words
+        )
+
+        # -------------------------------------------------
+        # WEB / CURRENT INFORMATION INTENT BOOST
+        # -------------------------------------------------
+        web_intent_words = {
+            "latest",
+            "current",
+            "recent",
+            "newest",
+            "updated",
+            "today",
+            "recently",
+            "release",
+            "released",
+            "version",
+            "news",
+            "current",
+            "online",
+            "internet",
+            "web",
+        }
+
+        web_intent = bool(
+            prompt_words & web_intent_words
+        )
+
         github_priority_tools = {
             "search_repositories",
             "search_code",
@@ -223,16 +267,40 @@ class ToolRegistry:
                 prompt_words & tool_words
             )
 
+            # Explicit intent priority:
+            # Knowledge > Memory > Web > GitHub
+            #
+            # Once a higher-priority intent is detected, lower-priority
+            # tool boosts must not compete with it.
+
             if (
                 github_intent
+                and not knowledge_intent
+                and not memory_intent
+                and not web_intent
                 and tool.name in github_priority_tools
             ):
                 score += 100
 
             if (
                 knowledge_intent
-                and not github_intent
                 and tool.name == "search_knowledge"
+            ):
+                score += 100
+
+            if (
+                memory_intent
+                and not knowledge_intent
+                and tool.name == "search_memory"
+            ):
+                score += 100
+
+            if (
+                web_intent
+                and not knowledge_intent
+                and not memory_intent
+                and tool.name == "search_web"
+                and tool.name == "search_web"
             ):
                 score += 100
 
