@@ -496,3 +496,76 @@ export async function uploadKnowledgeDocument(
 
   return response.json()
 }
+
+/* =========================
+MEMORY
+========================= */
+
+export interface Memory {
+  id: number
+  workspace_id: number
+  memory_type: string
+  title: string
+  content: string
+  importance: number
+  confidence: number
+  source: string
+  status: string
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function getMemories(
+  workspaceId: number,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/memories`,
+  )
+}
+
+export async function updateMemory(
+  workspaceId: number,
+  memoryId: number,
+  updates: {
+    title?: string
+    content?: string
+    importance?: number
+  },
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/memories/${memoryId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    },
+  )
+}
+
+export async function deleteMemory(
+  workspaceId: number,
+  memoryId: number,
+) {
+  const token =
+    localStorage.getItem('access_token')
+
+  const response = await fetch(
+    `${API_BASE_URL}/workspaces/${workspaceId}/memories/${memoryId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  )
+
+  if (!response.ok && response.status !== 204) {
+    const error = await response
+      .json()
+      .catch(() => null)
+
+    throw new Error(
+      error?.detail || 'Failed to delete memory',
+    )
+  }
+}

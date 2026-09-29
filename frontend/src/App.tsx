@@ -21,6 +21,13 @@ import {
   restoreChat,
   streamMessage,
   uploadKnowledgeDocument,
+  getMemories,
+  updateMemory,
+  deleteMemory,
+} from './api/client'
+
+import type {
+  Memory,
 } from './api/client'
 
 import type {
@@ -131,6 +138,27 @@ function App() {
 
   const recognitionRef =
     useRef<any>(null)
+
+  const [memoryPanelOpen, setMemoryPanelOpen] =
+    useState(false)
+
+  const [memories, setMemories] =
+    useState<Memory[]>([])
+
+  const [memoriesLoading, setMemoriesLoading] =
+    useState(false)
+
+  const [editingMemoryId, setEditingMemoryId] =
+    useState<number | null>(null)
+
+  const [editMemoryTitle, setEditMemoryTitle] =
+    useState('')
+
+  const [editMemoryContent, setEditMemoryContent] =
+    useState('')
+
+  const [memoryBusy, setMemoryBusy] =
+    useState(false)
 
   /* =========================
   LOAD WORKSPACE + CHATS
@@ -1060,6 +1088,268 @@ function App() {
   }
 
   /* =========================
+  MEMORY MANAGEMENT
+  ========================= */
+
+  async function handleOpenMemoryPanel() {
+    setMemoryPanelOpen(true)
+    setEditingMemoryId(null)
+
+    if (!workspace) {
+      return
+    }
+
+    try {
+      setError('')
+      setMemoriesLoading(true)
+
+      const loaded: Memory[] =
+        await getMemories(workspace.id)
+
+      setMemories(loaded)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load memories',
+      )
+    } finally {
+      setMemoriesLoading(false)
+    }
+  }
+
+  function handleStartEditMemory(
+    memory: Memory,
+  ) {
+    setEditingMemoryId(memory.id)
+    setEditMemoryTitle(memory.title)
+    setEditMemoryContent(memory.content)
+  }
+
+  function handleCancelEditMemory() {
+    setEditingMemoryId(null)
+    setEditMemoryTitle('')
+    setEditMemoryContent('')
+  }
+
+  async function handleSaveMemory(
+    memory: Memory,
+  ) {
+    if (!workspace) {
+      return
+    }
+
+    try {
+      setError('')
+      setMemoryBusy(true)
+
+      const updated: Memory =
+        await updateMemory(
+          workspace.id,
+          memory.id,
+          {
+            title: editMemoryTitle.trim(),
+            content: editMemoryContent.trim(),
+          },
+        )
+
+      setMemories((current) =>
+        current.map((item) =>
+          item.id === memory.id
+            ? updated
+            : item,
+        ),
+      )
+
+      setEditingMemoryId(null)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to update memory',
+      )
+    } finally {
+      setMemoryBusy(false)
+    }
+  }
+
+  async function handleDeleteMemory(
+    memory: Memory,
+  ) {
+    if (!workspace) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete memory "${memory.title}"?`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setError('')
+      setMemoryBusy(true)
+
+      await deleteMemory(
+        workspace.id,
+        memory.id,
+      )
+
+      setMemories((current) =>
+        current.filter(
+          (item) => item.id !== memory.id,
+        ),
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to delete memory',
+      )
+    } finally {
+      setMemoryBusy(false)
+    }
+  }
+
+  function renderMemoryPanel() {
+    if (!memoryPanelOpen) {
+      return null
+    }
+
+    return (
+      <div className="memory-overlay">
+        <div className="memory-backdrop"
+          onClick={() =>
+            setMemoryPanelOpen(false)
+          }
+        />
+
+        <div className="memory-panel">
+          <div className="memory-panel-header">
+            <strong>Memory</strong>
+
+            <button
+              type="button"
+              onClick={() =>
+                setMemoryPanelOpen(false)
+              }
+              aria-label="Close memory panel"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="memory-panel-body">
+            {memoriesLoading ? (
+              <p>Loading...</p>
+            ) : memories.length === 0 ? (
+              <p className="memory-empty">
+                No memories saved yet.
+              </p>
+            ) : (
+              memories.map((memory) => (
+                <div
+                  key={memory.id}
+                  className="memory-item"
+                >
+                  {editingMemoryId === memory.id ? (
+                    <div className="memory-edit-form">
+                      <input
+                        className="memory-edit-title"
+                        value={editMemoryTitle}
+                        onChange={(event) =>
+                          setEditMemoryTitle(
+                            event.target.value,
+                          )
+                        }
+                        maxLength={200}
+                      />
+
+                      <textarea
+                        className="memory-edit-content"
+                        value={editMemoryContent}
+                        onChange={(event) =>
+                          setEditMemoryContent(
+                            event.target.value,
+                          )
+                        }
+                        rows={3}
+                      />
+
+                      <div className="memory-edit-actions">
+                        <button
+                          type="button"
+                          onClick={
+                            handleCancelEditMemory
+                          }
+                        >
+                          Cancel
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={
+                            memoryBusy ||
+                            !editMemoryTitle.trim()
+                          }
+                          onClick={() =>
+                            handleSaveMemory(memory)
+                          }
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="memory-item-header">
+                        <span className="memory-title">
+                          {memory.title}
+                        </span>
+
+                        <span className="memory-type">
+                          {memory.memory_type}
+                        </span>
+                      </div>
+
+                      <p className="memory-content">
+                        {memory.content}
+                      </p>
+
+                      <div className="memory-item-actions">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleStartEditMemory(memory)
+                          }
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={memoryBusy}
+                          onClick={() =>
+                            handleDeleteMemory(memory)
+                          }
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /* =========================
   LOGOUT
   ========================= */
 
@@ -1606,6 +1896,14 @@ function App() {
         </div>
 
         <button
+          type="button"
+          className="memory-open-button"
+          onClick={handleOpenMemoryPanel}
+        >
+          🧠 Memory
+        </button>
+
+        <button
           onClick={handleLogout}
         >
           Logout
@@ -1902,6 +2200,8 @@ function App() {
         </main>
 
       </div>
+
+      {renderMemoryPanel()}
 
     </div>
   )
