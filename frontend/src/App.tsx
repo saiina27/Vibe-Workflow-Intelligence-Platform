@@ -178,6 +178,9 @@ function App() {
   const knowledgePanelFileInputRef =
     useRef<HTMLInputElement | null>(null)
 
+  const [sidebarOpen, setSidebarOpen] =
+    useState(false)
+
   /* =========================
   LOAD WORKSPACE + CHATS
   ========================= */
@@ -490,6 +493,7 @@ function App() {
 
       setActiveChat(chat)
       setMessages([])
+      setSidebarOpen(false)
 
       setOpenMenuChatId(null)
       setRenamingChatId(null)
@@ -513,6 +517,7 @@ function App() {
     try {
       setError('')
       setToolActivities([])
+      setSidebarOpen(false)
 
       setActiveChat(chat)
 
@@ -2001,6 +2006,17 @@ function App() {
       ========================= */}
 
       <header className="topbar">
+        <button
+          type="button"
+          className="sidebar-toggle-button"
+          aria-label="Toggle chat list"
+          onClick={() =>
+            setSidebarOpen((open) => !open)
+          }
+        >
+          ☰
+        </button>
+
         <div className="brand">
           Vibe
         </div>
@@ -2166,7 +2182,16 @@ function App() {
             SIDEBAR
         ========================= */}
 
-        <aside className="sidebar">
+        {sidebarOpen && (
+          <div
+            className="sidebar-backdrop"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
+
+        <aside
+          className={`sidebar ${sidebarOpen ? 'open' : ''}`}
+        >
 
           <button
             className="new-chat-button"
