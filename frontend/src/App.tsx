@@ -2083,9 +2083,10 @@ function App() {
           )}
         </div>
 
-        <div className="topbar-integrations">
-          <button
-            className="integration-button"
+        <div className="topbar-actions">
+          <div className="topbar-integrations">
+            <button
+              className="integration-button"
             type="button"
             onClick={
               githubConnected
@@ -2146,30 +2147,31 @@ function App() {
                 ? 'Slack · Connected'
                 : 'Slack'}
             </span>
-          </button>
-        </div>
+            </button>
+          </div>
 
-        <button
-          type="button"
-          className="memory-open-button"
+          <button
+            type="button"
+            className="memory-open-button"
           onClick={handleOpenMemoryPanel}
         >
           🧠 Memory
         </button>
 
-        <button
-          type="button"
-          className="knowledge-open-button"
+          <button
+            type="button"
+            className="knowledge-open-button"
           onClick={handleOpenKnowledgePanel}
         >
           📚 Knowledge
         </button>
 
-        <button
-          onClick={handleLogout}
-        >
-          Logout
-        </button>
+          <button
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       {/* =========================

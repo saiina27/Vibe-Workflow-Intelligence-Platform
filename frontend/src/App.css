@@ -704,19 +704,31 @@
     bottom: 76px;
   }
 }
-.topbar-integrations {
+.topbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 24px;
   margin-left: auto;
-  margin-right: 16px;
+}
+
+.topbar-integrations {
+  display: contents;
+}
+
+.topbar-actions .integration-button,
+.topbar-actions .memory-open-button,
+.topbar-actions .knowledge-open-button,
+.topbar-actions > button:last-child {
+  margin: 0;
+  padding-left: 2px;
+  padding-right: 2px;
 }
 
 .integration-button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 7px 10px;
+  padding: 7px 0;
   border: 1px solid transparent;
   border-radius: 7px;
   background: transparent;
