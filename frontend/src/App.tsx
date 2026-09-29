@@ -24,10 +24,13 @@ import {
   getMemories,
   updateMemory,
   deleteMemory,
+  getKnowledgeSources,
+  deleteKnowledgeSource,
 } from './api/client'
 
 import type {
   Memory,
+  KnowledgeSource,
 } from './api/client'
 
 import type {
@@ -159,6 +162,21 @@ function App() {
 
   const [memoryBusy, setMemoryBusy] =
     useState(false)
+
+  const [knowledgePanelOpen, setKnowledgePanelOpen] =
+    useState(false)
+
+  const [knowledgeSources, setKnowledgeSources] =
+    useState<KnowledgeSource[]>([])
+
+  const [knowledgeLoading, setKnowledgeLoading] =
+    useState(false)
+
+  const [knowledgeBusyId, setKnowledgeBusyId] =
+    useState<number | null>(null)
+
+  const knowledgePanelFileInputRef =
+    useRef<HTMLInputElement | null>(null)
 
   /* =========================
   LOAD WORKSPACE + CHATS
@@ -1350,6 +1368,226 @@ function App() {
   }
 
   /* =========================
+  KNOWLEDGE MANAGEMENT
+  ========================= */
+
+  async function loadKnowledgeSources() {
+    if (!workspace) {
+      return
+    }
+
+    try {
+      setError('')
+      setKnowledgeLoading(true)
+
+      const loaded: KnowledgeSource[] =
+        await getKnowledgeSources(workspace.id)
+
+      setKnowledgeSources(loaded)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to load documents',
+      )
+    } finally {
+      setKnowledgeLoading(false)
+    }
+  }
+
+  async function handleOpenKnowledgePanel() {
+    setKnowledgePanelOpen(true)
+    await loadKnowledgeSources()
+  }
+
+  async function handleKnowledgePanelUpload(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0]
+
+    event.target.value = ''
+
+    if (!file || !workspace) {
+      return
+    }
+
+    try {
+      setError('')
+      setUploadStatus(`Uploading ${file.name}...`)
+
+      await uploadKnowledgeDocument(
+        workspace.id,
+        file,
+      )
+
+      setUploadStatus(`✓ Indexed: ${file.name}`)
+
+      await loadKnowledgeSources()
+    } catch (err) {
+      setUploadStatus('')
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to upload document',
+      )
+    }
+  }
+
+  async function handleDeleteKnowledgeSource(
+    source: KnowledgeSource,
+  ) {
+    if (!workspace) {
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Delete "${source.title}"? This removes it from the knowledge base.`,
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setError('')
+      setKnowledgeBusyId(source.id)
+
+      await deleteKnowledgeSource(
+        workspace.id,
+        source.id,
+      )
+
+      setKnowledgeSources((current) =>
+        current.filter(
+          (item) => item.id !== source.id,
+        ),
+      )
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to delete document',
+      )
+    } finally {
+      setKnowledgeBusyId(null)
+    }
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024) {
+      return `${bytes} B`
+    }
+
+    if (bytes < 1024 * 1024) {
+      return `${Math.round(bytes / 1024)} KB`
+    }
+
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  }
+
+  function renderKnowledgePanel() {
+    if (!knowledgePanelOpen) {
+      return null
+    }
+
+    return (
+      <div className="knowledge-overlay">
+        <div
+          className="knowledge-backdrop"
+          onClick={() =>
+            setKnowledgePanelOpen(false)
+          }
+        />
+
+        <div className="knowledge-panel">
+          <div className="knowledge-panel-header">
+            <strong>Knowledge</strong>
+
+            <button
+              type="button"
+              onClick={() =>
+                setKnowledgePanelOpen(false)
+              }
+              aria-label="Close knowledge panel"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="knowledge-panel-toolbar">
+            <input
+              ref={knowledgePanelFileInputRef}
+              type="file"
+              accept=".pdf,.txt,.docx"
+              style={{ display: 'none' }}
+              onChange={handleKnowledgePanelUpload}
+            />
+
+            <button
+              type="button"
+              onClick={() =>
+                knowledgePanelFileInputRef.current?.click()
+              }
+            >
+              + Upload document
+            </button>
+          </div>
+
+          <div className="knowledge-panel-body">
+            {knowledgeLoading ? (
+              <p>Loading...</p>
+            ) : knowledgeSources.length === 0 ? (
+              <p className="knowledge-empty">
+                No documents uploaded yet.
+              </p>
+            ) : (
+              knowledgeSources.map((source) => (
+                <div
+                  key={source.id}
+                  className="knowledge-item"
+                >
+                  <div className="knowledge-item-header">
+                    <span className="knowledge-title">
+                      {source.title}
+                    </span>
+
+                    <span className="knowledge-status">
+                      {source.status}
+                    </span>
+                  </div>
+
+                  <p className="knowledge-meta">
+                    {source.filename} ·{' '}
+                    {source.file_type.toUpperCase()} ·{' '}
+                    {formatFileSize(source.file_size)} ·{' '}
+                    {source.chunk_count} chunks
+                  </p>
+
+                  <div className="knowledge-item-actions">
+                    <button
+                      type="button"
+                      disabled={
+                        knowledgeBusyId === source.id
+                      }
+                      onClick={() =>
+                        handleDeleteKnowledgeSource(source)
+                      }
+                    >
+                      {knowledgeBusyId === source.id
+                        ? 'Deleting...'
+                        : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /* =========================
   LOGOUT
   ========================= */
 
@@ -1904,6 +2142,14 @@ function App() {
         </button>
 
         <button
+          type="button"
+          className="knowledge-open-button"
+          onClick={handleOpenKnowledgePanel}
+        >
+          📚 Knowledge
+        </button>
+
+        <button
           onClick={handleLogout}
         >
           Logout
@@ -2202,6 +2448,7 @@ function App() {
       </div>
 
       {renderMemoryPanel()}
+      {renderKnowledgePanel()}
 
     </div>
   )

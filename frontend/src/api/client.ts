@@ -569,3 +569,40 @@ export async function deleteMemory(
     )
   }
 }
+
+/* =========================
+KNOWLEDGE MANAGEMENT
+========================= */
+
+export interface KnowledgeSource {
+  id: number
+  workspace_id: number
+  title: string
+  filename: string
+  file_type: string
+  file_size: number
+  status: string
+  chunk_count: number
+  created_at: string
+  updated_at: string
+}
+
+export async function getKnowledgeSources(
+  workspaceId: number,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/knowledge`,
+  )
+}
+
+export async function deleteKnowledgeSource(
+  workspaceId: number,
+  sourceId: number,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/knowledge/${sourceId}`,
+    {
+      method: 'DELETE',
+    },
+  )
+}
