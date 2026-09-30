@@ -85,9 +85,14 @@ class EmbeddingRepository:
         limit: int = 1,
     ) -> list[tuple[WorkspaceMemory, float]]:
         """
-        Find the closest active memories of the same type,
-        by embedding cosine distance. Used for semantic
-        duplicate detection during memory extraction.
+        Find the closest active memories by embedding cosine
+        distance, workspace-wide (memory_type is intentionally
+        NOT filtered — the extractor's type classification is
+        unstable across near-identical messages, e.g. "fact"
+        vs "project" for the same underlying statement, so
+        restricting to one type let duplicates slip through).
+        Used for semantic duplicate detection during memory
+        extraction.
 
         Returns (memory, distance) pairs — lower distance
         means more similar. Caller converts to similarity
@@ -112,7 +117,6 @@ class EmbeddingRepository:
             )
             .where(
                 WorkspaceMemory.workspace_id == workspace_id,
-                WorkspaceMemory.memory_type == memory_type,
                 WorkspaceMemory.status == MemoryStatus.ACTIVE,
                 (
                     WorkspaceMemory.expires_at.is_(None)
