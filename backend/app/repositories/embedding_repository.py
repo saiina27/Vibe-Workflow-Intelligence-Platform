@@ -76,6 +76,61 @@ class EmbeddingRepository:
             db.scalars(statement).all()
         )
 
+    def find_similar_in_type(
+        self,
+        db: Session,
+        workspace_id: int,
+        memory_type,
+        query_embedding: list[float],
+        limit: int = 1,
+    ) -> list[tuple[WorkspaceMemory, float]]:
+        """
+        Find the closest active memories of the same type,
+        by embedding cosine distance. Used for semantic
+        duplicate detection during memory extraction.
+
+        Returns (memory, distance) pairs — lower distance
+        means more similar. Caller converts to similarity
+        (1 - distance) and applies its own threshold.
+        """
+
+        distance = (
+            WorkspaceMemoryEmbedding.embedding.cosine_distance(
+                query_embedding
+            )
+        )
+
+        statement = (
+            select(
+                WorkspaceMemory,
+                distance.label("distance"),
+            )
+            .join(
+                WorkspaceMemoryEmbedding,
+                WorkspaceMemory.id
+                == WorkspaceMemoryEmbedding.memory_id,
+            )
+            .where(
+                WorkspaceMemory.workspace_id == workspace_id,
+                WorkspaceMemory.memory_type == memory_type,
+                WorkspaceMemory.status == MemoryStatus.ACTIVE,
+                (
+                    WorkspaceMemory.expires_at.is_(None)
+                    | (
+                        WorkspaceMemory.expires_at
+                        > datetime.utcnow()
+                    )
+                ),
+            )
+            .order_by(distance)
+            .limit(limit)
+        )
+
+        return [
+            (row[0], row[1])
+            for row in db.execute(statement).all()
+        ]
+
     def update(
         self,
         db: Session,
