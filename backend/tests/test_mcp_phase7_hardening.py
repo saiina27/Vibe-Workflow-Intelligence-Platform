@@ -198,7 +198,7 @@ def test_github_runtime_rejects_invalid_user():
         manager._get_github_runtime_name(0)
 
 
-def test_github_server_config_contains_read_only_settings():
+def test_github_server_config_uses_remote_mcp_endpoint():
     manager = make_manager()
 
     config = manager._build_github_server_config(
@@ -206,20 +206,15 @@ def test_github_server_config_contains_read_only_settings():
         access_token="secret-token",
     )
 
+    # GitHub MCP runs as a hosted remote server over
+    # streamable_http, authenticated via the user's OAuth
+    # access token passed separately to connect() — not via
+    # a local docker process. This matches the Slack MCP
+    # integration pattern.
     assert config.name == "github:42"
-    assert config.command == "docker"
-
-    assert (
-        "ghcr.io/github/github-mcp-server"
-        in config.args
-    )
-
-    assert (
-        config.env["GITHUB_PERSONAL_ACCESS_TOKEN"]
-        == "secret-token"
-    )
-
-    assert config.env["GITHUB_READ_ONLY"] == "1"
+    assert config.transport == "streamable_http"
+    assert config.url == manager.GITHUB_REMOTE_MCP_URL
+    assert config.command is None
 
 
 def test_github_server_registration_is_idempotent():
