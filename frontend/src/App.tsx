@@ -24,6 +24,7 @@ import {
   restoreChat,
   streamMessage,
   uploadKnowledgeDocument,
+  disconnectGitHub,
   getMemories,
   updateMemory,
   deleteMemory,
@@ -272,6 +273,33 @@ function App() {
         err instanceof Error
           ? err.message
           : 'Failed to connect GitHub',
+      )
+    }
+  }
+
+  async function handleGitHubButtonClick() {
+    if (!githubConnected) {
+      await handleGitHubConnect()
+      return
+    }
+
+    const confirmed = window.confirm(
+      'Disconnect GitHub from Vibe?',
+    )
+
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      setError('')
+      await disconnectGitHub()
+      setGithubConnected(false)
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Failed to disconnect GitHub',
       )
     }
   }
@@ -2209,10 +2237,11 @@ function App() {
             <button
               className="integration-button"
             type="button"
-            onClick={
+            onClick={handleGitHubButtonClick}
+            title={
               githubConnected
-                ? undefined
-                : handleGitHubConnect
+                ? 'Click to disconnect GitHub'
+                : 'Connect GitHub'
             }
           >
             <svg

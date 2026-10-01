@@ -9,6 +9,7 @@ from app.dependencies.database import get_db
 from app.core.config import settings
 from app.mcp.oauth.github import GitHubOAuthProvider
 from app.models.user import User
+from app.repositories import external_integration_repository
 from app.services.external_integration_service import (
     get_user_integration,
     save_oauth_token,
@@ -70,6 +71,32 @@ def github_status(
 
     return {
         "connected": integration is not None,
+    }
+
+@router.delete("/github/disconnect")
+def github_disconnect(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    integration = get_user_integration(
+        db=db,
+        user_id=current_user.id,
+        provider="github",
+    )
+
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="GitHub is not connected.",
+        )
+
+    external_integration_repository.delete_integration(
+        db=db,
+        integration=integration,
+    )
+
+    return {
+        "disconnected": True,
     }
 
 @router.get("/github/callback")
@@ -211,6 +238,32 @@ def slack_status(
 
     return {
         "connected": integration is not None,
+    }
+
+@router.delete("/slack/disconnect")
+def slack_disconnect(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    integration = get_user_integration(
+        db=db,
+        user_id=current_user.id,
+        provider="slack",
+    )
+
+    if integration is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Slack is not connected.",
+        )
+
+    external_integration_repository.delete_integration(
+        db=db,
+        integration=integration,
+    )
+
+    return {
+        "disconnected": True,
     }
 
 @router.get("/slack/callback")

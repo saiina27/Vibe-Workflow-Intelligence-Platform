@@ -622,3 +622,21 @@ export async function deleteKnowledgeSource(
     },
   )
 }
+
+/* =========================
+INTEGRATION DISCONNECT
+========================= */
+
+export async function disconnectGitHub() {
+  return authenticatedFetch(
+    '/oauth/github/disconnect',
+    { method: 'DELETE' },
+  )
+}
+
+export async function disconnectSlack() {
+  return authenticatedFetch(
+    '/oauth/slack/disconnect',
+    { method: 'DELETE' },
+  )
+}
