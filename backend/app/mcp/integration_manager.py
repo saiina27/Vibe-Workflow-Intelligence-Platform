@@ -96,11 +96,22 @@ class MCPIntegrationManager:
     # GITHUB SERVER CONFIG
     # ========================================================
 
+    GITHUB_REMOTE_MCP_URL = (
+        "https://api.githubcopilot.com/mcp/"
+    )
+
     def _build_github_server_config(
         self,
         runtime_name: str,
         access_token: str,
     ) -> MCPServerConfig:
+        """
+        Uses GitHub's hosted remote MCP server over
+        streamable_http, authenticated with the user's
+        OAuth access token. This replaces the earlier
+        docker-based stdio server, which required a local
+        `docker` binary that is not available on Render.
+        """
 
         if not runtime_name:
             raise ValueError(
@@ -114,21 +125,8 @@ class MCPIntegrationManager:
 
         return MCPServerConfig(
             name=runtime_name,
-            command="docker",
-            args=(
-                "run",
-                "-i",
-                "--rm",
-                "-e",
-                "GITHUB_PERSONAL_ACCESS_TOKEN",
-                "-e",
-                "GITHUB_READ_ONLY",
-                self.GITHUB_IMAGE,
-            ),
-            env={
-                "GITHUB_PERSONAL_ACCESS_TOKEN": access_token,
-                "GITHUB_READ_ONLY": "1",
-            },
+            transport="streamable_http",
+            url=self.GITHUB_REMOTE_MCP_URL,
         )
 
     # ========================================================
@@ -333,7 +331,8 @@ class MCPIntegrationManager:
         )
 
         client = await self.server_manager.connect(
-            runtime_name
+            runtime_name,
+            access_token=access_token,
         )
 
         discovery = MCPToolDiscovery(

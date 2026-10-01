@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     github_client_id: str | None = None
     github_client_secret: str | None = None
     github_redirect_uri: str | None = None
-    github_oauth_scope: str = "read:user"
+    github_oauth_scope: str = "repo read:user"
 
     slack_client_id: str | None = None
     slack_client_secret: str | None = None
