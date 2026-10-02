@@ -302,45 +302,25 @@ class AIGateway:
 
             # =================================================
             # STREAM CURRENT PROVIDER RESPONSE
-            #
-            # Wrapped in a bounded retry: some providers (seen
-            # with Groq's smaller fallback models) occasionally
-            # emit malformed tool-call output mid-stream that
-            # fails to parse. @ai_retry does not help here
-            # because this is a generator — the decorated call
-            # returns immediately without running, so the
-            # retry window has already closed by the time the
-            # real error surfaces during iteration. Retry once
-            # manually; if it fails again, end the response
-            # gracefully instead of leaking a raw provider
-            # error to the user.
             # =================================================
 
-            stream_attempts = 0
+            for event in provider_events:
 
-            while True:
+                # ---------------------------------------------
+                # NORMAL CONTENT
+                # ---------------------------------------------
 
-                stream_attempts += 1
+                if event.type == "content":
 
-                try:
+                    yield event
 
-                    for event in provider_events:
+                    continue
 
-                        # ---------------------------------------------
-                        # NORMAL CONTENT
-                        # ---------------------------------------------
+                # ---------------------------------------------
+                # PROVIDER TOOL CALL
+                # ---------------------------------------------
 
-                        if event.type == "content":
-
-                            yield event
-
-                            continue
-
-                        # ---------------------------------------------
-                        # PROVIDER TOOL CALL
-                        # ---------------------------------------------
-
-                        if event.type == "tool_call":
+                if event.type == "tool_call":
 
                     if not event.tool_calls:
 
@@ -500,48 +480,6 @@ class AIGateway:
                         )
                         request.tools = []
 
-                            provider_events = (
-                                self._stream_provider_with_tool_results(
-                                    request=request,
-                                    original_response=current_response,
-                                    tool_results=serialized_results,
-                                )
-                            )
-
-                            break
-
-                        # ---------------------------------------------
-                        # UNKNOWN PROVIDER EVENT
-                        # ---------------------------------------------
-
-                        yield event
-
-                    break
-
-                except Exception as stream_exc:
-
-                    print(
-                        "⚠️ Streaming round failed "
-                        f"(attempt {stream_attempts}): "
-                        f"{stream_exc}"
-                    )
-
-                    if (
-                        stream_attempts >= 2
-                        or current_response is None
-                    ):
-
-                        yield AIStreamEvent(
-                            type="content",
-                            text=(
-                                "\n\nSorry, I ran into an issue "
-                                "while finishing that response. "
-                                "Please try asking again."
-                            ),
-                        )
-
-                        return
-
                     provider_events = (
                         self._stream_provider_with_tool_results(
                             request=request,
@@ -549,6 +487,14 @@ class AIGateway:
                             tool_results=serialized_results,
                         )
                     )
+
+                    break
+
+                # ---------------------------------------------
+                # UNKNOWN PROVIDER EVENT
+                # ---------------------------------------------
+
+                yield event
 
             # =================================================
             # NO TOOL CALL → PROVIDER FINISHED
