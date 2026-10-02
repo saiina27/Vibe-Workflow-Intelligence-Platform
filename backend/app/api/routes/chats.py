@@ -241,12 +241,31 @@ def ask_chat_stream(
 
         except Exception as exc:
 
+            error_text = str(exc)
+
+            # Some providers (seen with Groq's smaller
+            # fallback model) occasionally emit malformed
+            # tool-call output that fails to parse. This is a
+            # transient model quirk, not a real server error,
+            # so show the user something actionable instead of
+            # the raw provider error text.
+            if (
+                "parse" in error_text.lower()
+                and "tool call" in error_text.lower()
+            ) or "failed_generation" in error_text.lower():
+
+                error_text = (
+                    "The AI model had trouble formatting that "
+                    "response. Please try asking again — "
+                    "rephrasing slightly often helps."
+                )
+
             yield (
                 "data: "
                 + json.dumps(
                     {
                         "type": "error",
-                        "message": str(exc),
+                        "message": error_text,
                     },
                     ensure_ascii=False,
                 )
