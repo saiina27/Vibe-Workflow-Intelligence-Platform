@@ -260,6 +260,18 @@ def ask_chat_stream(
                     "rephrasing slightly often helps."
                 )
 
+            elif (
+                "503" in error_text
+                or "UNAVAILABLE" in error_text
+                or "overloaded" in error_text.lower()
+                or "high demand" in error_text.lower()
+            ):
+
+                error_text = (
+                    "The AI provider is temporarily busy right "
+                    "now. Please try asking again in a moment."
+                )
+
             yield (
                 "data: "
                 + json.dumps(
