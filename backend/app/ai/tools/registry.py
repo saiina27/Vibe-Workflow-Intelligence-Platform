@@ -127,6 +127,45 @@ class ToolRegistry:
         if scoped:
             tools = scoped
 
+        # GitHub repo/commit prompts: expose every read-only
+        # GitHub tool (and the non-GitHub tools), but never the
+        # GitHub write tools.
+        github_words = ("github", "repo", "commit", "branch")
+
+        if any(word in prompt.lower() for word in github_words):
+            GITHUB_WRITE_TOOLS = {
+                "add_comment_to_pending_review",
+                "add_issue_comment",
+                "add_reply_to_pull_request_comment",
+                "create_branch",
+                "create_or_update_file",
+                "create_pull_request",
+                "create_repository",
+                "delete_file",
+                "fork_repository",
+                "issue_write",
+                "merge_pull_request",
+                "pull_request_review_write",
+                "push_files",
+                "request_copilot_review",
+                "run_secret_scanning",
+                "sub_issue_write",
+                "ui_get",
+                "update_issue_comment",
+                "update_pull_request",
+                "update_pull_request_branch",
+            }
+
+            return [
+                ToolDefinition(
+                    name=tool.name,
+                    description=tool.description,
+                    parameters=tool.parameters,
+                )
+                for tool in tools
+                if tool.name not in GITHUB_WRITE_TOOLS
+            ]
+
         if len(tools) <= max_tools:
             return [
                 ToolDefinition(
