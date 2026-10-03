@@ -171,6 +171,8 @@ class ToolRegistry:
             "file",
             "architecture",
             "readme",
+            "commit",
+            "branch",
         }
 
         github_intent = bool(
@@ -242,12 +244,26 @@ class ToolRegistry:
             prompt_words & web_intent_words
         )
 
+        # "latest commits in my repo" is a GitHub request,
+        # not a web search. Strong GitHub words win over
+        # generic recency words like "latest" / "recent".
+        strong_github_intent = bool(
+            prompt_words
+            & {"github", "repo", "repository", "commit", "branch"}
+        )
+
+        if strong_github_intent:
+            web_intent = False
+
         github_priority_tools = {
             "search_repositories",
             "search_code",
             "get_file_contents",
             "get_commit",
             "list_branches",
+            "list_commits",
+            "list_pull_requests",
+            "list_issues",
         }
 
         scored_tools = []
