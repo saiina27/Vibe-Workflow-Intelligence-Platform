@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useEffect, useRef, useState } from 'react'
@@ -11,7 +12,7 @@ import {
   createChat,
   deleteChat,
   getChats,
-  connectGitHub,
+  saveGitHubPat,
   connectSlack,
   getCurrentUser,
   getGitHubStatus,
@@ -70,6 +71,18 @@ function App() {
 
   const [githubConnected, setGithubConnected] =
     useState(false)
+
+  const [showGithubPatModal, setShowGithubPatModal] =
+    useState(false)
+
+  const [githubPatInput, setGithubPatInput] =
+    useState('')
+
+  const [githubPatSaving, setGithubPatSaving] =
+    useState(false)
+
+  const [githubPatError, setGithubPatError] =
+    useState('')
 
   const [slackConnected, setSlackConnected] =
     useState(false)
@@ -259,27 +272,42 @@ function App() {
     loadWorkspace()
   }, [token])
 
-  async function handleGitHubConnect() {
+  function closeGithubPatModal() {
+    setShowGithubPatModal(false)
+    setGithubPatInput('')
+    setGithubPatError('')
+  }
+
+  async function handleGitHubPatSubmit() {
+    const pat = githubPatInput.trim()
+
+    if (!pat || githubPatSaving) {
+      return
+    }
+
     try {
-      setError('')
+      setGithubPatError('')
+      setGithubPatSaving(true)
 
-      const response =
-        await connectGitHub()
+      await saveGitHubPat(pat)
 
-      window.location.href =
-        response.authorization_url
+      setGithubConnected(true)
+      closeGithubPatModal()
     } catch (err) {
-      setError(
+      setGithubPatError(
         err instanceof Error
           ? err.message
-          : 'Failed to connect GitHub',
+          : 'Failed to save GitHub token',
       )
+    } finally {
+      setGithubPatSaving(false)
     }
   }
 
   async function handleGitHubButtonClick() {
     if (!githubConnected) {
-      await handleGitHubConnect()
+      setGithubPatError('')
+      setShowGithubPatModal(true)
       return
     }
 
@@ -2233,6 +2261,93 @@ function App() {
         </div>
 
         <div className="topbar-actions">
+          {showGithubPatModal &&
+          createPortal(
+            <div
+              className="pat-overlay"
+              onClick={closeGithubPatModal}
+            >
+              <div
+                className="pat-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="pat-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 id="pat-title">Connect GitHub</h3>
+
+                <p className="pat-help">
+                  Paste a GitHub Personal Access Token.
+                  For a fine-grained token, set Repository
+                  access to the repos you want, with
+                  read-only access to Contents and Metadata
+                  (add Issues and Pull requests if needed).{' '}
+                  <a
+                    href="https://github.com/settings/personal-access-tokens/new"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Create a token
+                  </a>
+                </p>
+
+                <input
+                  className="pat-input"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="github_pat_..."
+                  value={githubPatInput}
+                  onChange={(e) =>
+                    setGithubPatInput(e.target.value)
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      void handleGitHubPatSubmit()
+                    }
+                    if (e.key === 'Escape') {
+                      closeGithubPatModal()
+                    }
+                  }}
+                  autoFocus
+                />
+
+                {githubPatError && (
+                  <p className="pat-error">
+                    {githubPatError}
+                  </p>
+                )}
+
+                <div className="pat-actions">
+                  <button
+                    type="button"
+                    className="pat-cancel"
+                    onClick={closeGithubPatModal}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    className="pat-save"
+                    disabled={
+                      githubPatSaving ||
+                      !githubPatInput.trim()
+                    }
+                    onClick={() =>
+                      void handleGitHubPatSubmit()
+                    }
+                  >
+                    {githubPatSaving
+                      ? 'Validating...'
+                      : 'Save & Connect'}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )}
+
           <div className="topbar-integrations">
             <button
               className="integration-button"

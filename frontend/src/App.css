@@ -1215,3 +1215,86 @@ COLLAPSIBLE SIDEBAR
 .chat-message td:last-child {
   padding-right: 0;
 }
+
+/* GitHub PAT modal */
+.pat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.pat-modal {
+  width: min(460px, calc(100vw - 32px));
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--surface, #1e1e24);
+  color: var(--text, #f2f2f2);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.pat-modal h3 {
+  margin: 0 0 8px;
+}
+
+.pat-help {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.85;
+}
+
+.pat-help a {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.pat-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: inherit;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.pat-error {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: #ff6b6b;
+}
+
+.pat-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.pat-cancel,
+.pat-save {
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.pat-save {
+  background: #2f6feb;
+  border-color: #2f6feb;
+  color: #fff;
+}
+
+.pat-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

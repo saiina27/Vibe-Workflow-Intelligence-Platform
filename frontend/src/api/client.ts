@@ -147,6 +147,17 @@ export async function connectGitHub() {
   )
 }
 
+export async function saveGitHubPat(token: string) {
+  return authenticatedFetch(
+    '/oauth/github/pat',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    },
+  )
+}
+
 export async function getSlackStatus() {
   return authenticatedFetch(
     '/oauth/slack/status',

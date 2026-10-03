@@ -9,6 +9,13 @@ from app.dependencies.database import get_db
 from app.core.config import settings
 from app.mcp.oauth.github import GitHubOAuthProvider
 from app.models.user import User
+import asyncio
+from fastapi.concurrency import run_in_threadpool
+from app.mcp.runtime import mcp_integration_manager
+from pydantic import BaseModel, Field
+import httpx
+from app.mcp.oauth.encryption import encrypt_token
+from app.models.external_integration import ExternalIntegration
 from app.repositories import external_integration_repository
 from app.services.external_integration_service import (
     get_user_integration,
@@ -28,6 +35,24 @@ router = APIRouter(
 
 github_provider = GitHubOAuthProvider()
 slack_provider = SlackOAuthProvider()
+
+
+def _drop_github_runtime(user_id: int) -> None:
+    """
+    Close the cached in-memory GitHub MCP client for this user,
+    so the next connect uses the freshly stored token.
+
+    Must run in a worker thread (no running event loop).
+    """
+    try:
+        asyncio.run(
+            mcp_integration_manager.disconnect_github(user_id)
+        )
+    except Exception as exc:
+        print(
+            f"Failed to close GitHub MCP runtime "
+            f"for user {user_id}: {exc!r}"
+        )
 
 
 @router.get("/github/connect")
@@ -94,6 +119,8 @@ def github_disconnect(
         db=db,
         integration=integration,
     )
+
+    _drop_github_runtime(current_user.id)
 
     return {
         "disconnected": True,
@@ -366,3 +393,103 @@ async def slack_callback(
         status_code=status.HTTP_302_FOUND,
     )
 
+
+class GitHubPATRequest(BaseModel):
+    token: str = Field(min_length=20, max_length=500)
+
+
+@router.post("/github/pat")
+async def github_save_pat(
+    payload: GitHubPATRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Connect GitHub using a user-supplied Personal Access Token.
+
+    The token is validated against GitHub, encrypted, and stored
+    in the same external_integrations row used by OAuth.
+    The token is never returned in any response.
+    """
+
+    token = payload.token.strip()
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            response = await http.get(
+                "https://api.github.com/user",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Could not reach GitHub to validate the token.",
+        ) from exc
+
+    if response.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="GitHub rejected this token. Check it and try again.",
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GitHub token validation failed.",
+        )
+
+    github_user = response.json()
+    provider_user_id = github_user.get("id")
+
+    if provider_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="GitHub user ID was not returned.",
+        )
+
+    encrypted_token = encrypt_token(token)
+
+    integration = external_integration_repository.get_integration(
+        db=db,
+        user_id=current_user.id,
+        provider="github",
+    )
+
+    if integration is None:
+        external_integration_repository.create_integration(
+            db=db,
+            integration=ExternalIntegration(
+                user_id=current_user.id,
+                provider="github",
+                provider_user_id=str(provider_user_id),
+                access_token=encrypted_token,
+                refresh_token=None,
+                expires_at=None,
+                scope="pat",
+            ),
+        )
+    else:
+        integration.provider_user_id = str(provider_user_id)
+        integration.access_token = encrypted_token
+        integration.refresh_token = None
+        integration.expires_at = None
+        integration.scope = "pat"
+
+        external_integration_repository.update_integration(
+            db=db,
+            integration=integration,
+        )
+
+    await run_in_threadpool(
+        _drop_github_runtime,
+        current_user.id,
+    )
+
+    return {
+        "connected": True,
+        "github_login": github_user.get("login"),
+    }
