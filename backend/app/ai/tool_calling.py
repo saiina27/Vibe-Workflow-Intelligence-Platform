@@ -434,6 +434,13 @@ class ToolCallingService:
 
                 error_message = str(exc)
 
+                print(
+                    f"🔧 Tool execution failed for "
+                    f"'{tool_call.name}' with arguments "
+                    f"{tool_call.arguments!r}: "
+                    f"{type(exc).__name__}: {error_message}"
+                )
+
                 tool_result = {
                     "success": False,
                     "error": error_message,
