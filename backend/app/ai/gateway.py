@@ -245,6 +245,7 @@ class AIGateway:
         # ====================================================
 
         request.tools = registry.definitions_for_prompt(request.prompt)
+        print("🧰 Tools exposed to model:", [t.name for t in request.tools])
 
         if not request.tools:
 
@@ -557,6 +558,7 @@ class AIGateway:
         # ====================================================
 
         request.tools = registry.definitions_for_prompt(request.prompt)
+        print("🧰 Tools exposed to model:", [t.name for t in request.tools])
 
         if not request.tools:
 
