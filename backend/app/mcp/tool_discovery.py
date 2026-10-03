@@ -24,9 +24,7 @@ class MCPToolDiscovery:
     # despite prompt instructions not to, so they are excluded
     # from registration entirely here rather than relying on
     # the LLM to avoid them.
-    UNRELIABLE_GITHUB_TOOL_PREFIXES = (
-        "search_",
-    )
+    UNRELIABLE_GITHUB_TOOL_PREFIXES = ()
 
     def __init__(
         self,
