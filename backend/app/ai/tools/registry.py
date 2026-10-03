@@ -128,8 +128,9 @@ class ToolRegistry:
             tools = scoped
 
         # GitHub repo/commit prompts: expose a small, fixed set of
-        # read-only GitHub tools. Keeps the request under Groq's
-        # token limit and never exposes write tools.
+        # read-only GitHub tools plus the core Vibe tools (web,
+        # knowledge, memory). Keeps the request under Groq's token
+        # limit and never exposes GitHub write tools.
         github_words = ("github", "repo", "commit", "branch")
 
         if any(word in prompt.lower() for word in github_words):
@@ -140,24 +141,30 @@ class ToolRegistry:
                 "list_branches",
                 "get_file_contents",
                 "list_pull_requests",
-                "list_issues",
-                "search_repositories",
             }
 
-            github_tools = [
+            CORE_TOOLS = {
+                "search_web",
+                "search_knowledge",
+                "search_memory",
+            }
+
+            allowed = GITHUB_READ_TOOLS | CORE_TOOLS
+
+            selected = [
                 tool
                 for tool in tools
-                if tool.name in GITHUB_READ_TOOLS
+                if tool.name in allowed
             ]
 
-            if github_tools:
+            if selected:
                 return [
                     ToolDefinition(
                         name=tool.name,
                         description=tool.description,
                         parameters=tool.parameters,
                     )
-                    for tool in github_tools
+                    for tool in selected
                 ]
 
         if len(tools) <= max_tools:
