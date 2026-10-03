@@ -559,10 +559,51 @@ class MCPClient:
     ) -> Any:
         session = self._require_session()
 
-        return await session.call_tool(
-            tool_name.strip(),
-            arguments or {},
-        )
+        try:
+
+            return await session.call_tool(
+                tool_name.strip(),
+                arguments or {},
+            )
+
+        except Exception as exc:
+
+            # Debug visibility: the MCP SDK's generic
+            # "Server returned an error response" message hides
+            # the underlying HTTP status/body from a remote
+            # streamable_http server (e.g. GitHub's hosted MCP
+            # endpoint). Surface whatever detail the exception
+            # actually carries so the real cause (auth scope,
+            # rate limit, etc.) shows up in logs instead of a
+            # generic label.
+            print(
+                f"🔍 MCP call_tool raw exception for "
+                f"'{tool_name}': {type(exc).__name__}: {exc!r}"
+            )
+
+            for attr in (
+                "status_code",
+                "response",
+                "code",
+                "data",
+            ):
+
+                if hasattr(exc, attr):
+
+                    print(
+                        f"🔍 MCP exception.{attr} = "
+                        f"{getattr(exc, attr)!r}"
+                    )
+
+            error_obj = getattr(exc, "error", None)
+
+            if error_obj is not None:
+
+                print(
+                    f"🔍 MCP exception.error = {error_obj!r}"
+                )
+
+            raise
 
     # ========================================================
     # CLEANUP SIGNAL
