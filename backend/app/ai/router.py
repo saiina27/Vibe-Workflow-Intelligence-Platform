@@ -65,44 +65,14 @@ class ProviderRouter:
             request.complexity,
         )
 
-        # GitHub MCP tool calls use structured query syntax
-        # (e.g. "owner:name/repo") that Groq's smaller fallback
-        # model frequently fails to encode as valid JSON
-        # arguments. Prefer Gemini for these specific tool
-        # calls, even though technical tasks otherwise default
-        # to Groq to conserve Gemini's free-tier quota.
-        github_tool_requested = any(
-            "github" in tool.name.lower()
-            or tool.name
-            in {
-                "search_repositories",
-                "search_code",
-                "search_commits",
-                "search_issues",
-                "search_pull_requests",
-                "search_users",
-                "get_me",
-                "get_commit",
-                "list_commits",
-                "list_branches",
-                "list_issues",
-                "list_pull_requests",
-                "list_releases",
-                "list_tags",
-            }
-            for tool in (request.tools or [])
-        )
-
-        if github_tool_requested and "gemini" in (
-            self.registry.providers
-        ):
-
-            decision.provider = "gemini"
-            decision.reason += (
-                " (overridden: GitHub tool call, "
-                "preferring Gemini for reliable JSON "
-                "arguments)"
-            )
+        # NOTE: GitHub MCP tool calls were briefly routed to
+        # Gemini here to avoid Groq JSON-parsing failures, but
+        # Gemini's free-tier quota is returning near-constant
+        # 503s for this workload, which is worse than Groq's
+        # occasional malformed-JSON errors (which the frontend
+        # now shows as a friendly "try again" message and which
+        # succeed on retry). Reverted to the default routing
+        # below so GitHub tool calls use Groq again.
 
         provider = self.registry.providers.get(
             decision.provider
