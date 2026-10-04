@@ -1,9 +1,10 @@
 import json
+import re
 import time
 from collections.abc import Iterator
 from typing import Any
 
-from groq import Groq
+from groq import Groq, RateLimitError
 
 from app.ai.providers.base import AIProvider
 from app.core.config import settings
@@ -122,6 +123,62 @@ class GroqProvider(AIProvider):
 
             if delta.content:
                 yield delta.content
+
+    # ========================================================
+    # RATE LIMIT RETRY (per-minute limits only)
+    # ========================================================
+
+    @staticmethod
+    def _retry_after_seconds(message: str) -> float | None:
+        """
+        Parse Groq's "Please try again in 1.4s / 112ms / 1m17s".
+        """
+
+        match = re.search(
+            r"try again in (?:(\d+)m)?([\d.]+)(ms|s)",
+            message,
+        )
+
+        if not match:
+            return None
+
+        minutes = int(match.group(1) or 0)
+        value = float(match.group(2))
+        seconds = value / 1000 if match.group(3) == "ms" else value
+
+        return minutes * 60 + seconds
+
+    def _create_with_rate_limit_retry(self, **kwargs):
+        """
+        chat.completions.create() with a short retry for
+        per-minute (TPM) 429s. Per-day (TPD) limits and long
+        waits are raised immediately.
+        """
+
+        max_retries = 2
+
+        for attempt in range(max_retries + 1):
+            try:
+                return self.client.chat.completions.create(**kwargs)
+
+            except RateLimitError as exc:
+                message = str(exc)
+                wait = self._retry_after_seconds(message)
+
+                if (
+                    "per minute" not in message
+                    or wait is None
+                    or wait > 8
+                    or attempt == max_retries
+                ):
+                    raise
+
+                print(
+                    f"Groq TPM 429: retrying in {wait + 0.5:.1f}s "
+                    f"(attempt {attempt + 1}/{max_retries})"
+                )
+
+                time.sleep(wait + 0.5)
 
     # ========================================================
     # TOOL DEFINITIONS
@@ -391,18 +448,14 @@ class GroqProvider(AIProvider):
             "content": request.prompt,
         }
 
-        response_stream = (
-            self.client.chat.completions.create(
-                model=model,
-                messages=[
-                    user_message
-                ],
-                tools=tools,
-                tool_choice="auto",
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stream=True,
-            )
+        response_stream = self._create_with_rate_limit_retry(
+            model=model,
+            messages=[user_message],
+            tools=tools,
+            tool_choice="auto",
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,
         )
 
         tool_call_state: dict[
@@ -976,15 +1029,13 @@ class GroqProvider(AIProvider):
                 }
             )
 
-        response_stream = (
-            self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=request.temperature,
-                max_tokens=request.max_tokens,
-                stream=True,
-                **extra_kwargs,
-            )
+        response_stream = self._create_with_rate_limit_retry(
+            model=model,
+            messages=messages,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            stream=True,
+            **extra_kwargs,
         )
 
         tool_call_state: dict[
