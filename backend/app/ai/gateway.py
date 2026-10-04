@@ -17,6 +17,13 @@ from app.mcp.runtime import (
 )
 
 
+UNEXPOSED_TOOL_MESSAGE = (
+    "I couldn't complete that request because I tried to use a tool "
+    "that isn't available for this question. Please rephrase it "
+    "(for example, mention the repository name) and try again."
+)
+
+
 class AIGateway:
 
     def __init__(self):
@@ -147,6 +154,38 @@ class AIGateway:
             tool_results=tool_results,
         )
 
+    @staticmethod
+    def _guard_unexposed_tool_errors(events):
+        """
+        If the provider rejects a tool call that was not in
+        request.tools, end the stream with a clear message
+        instead of crashing the whole chat.
+        """
+
+        try:
+            yield from events
+
+        except Exception as exc:
+            text = str(exc).lower()
+
+            if (
+                "not in request.tools" in text
+                or "tool call validation failed" in text
+            ):
+                print(
+                    "🚫 Provider rejected an unexposed tool call: "
+                    f"{exc}"
+                )
+
+                yield AIStreamEvent(
+                    type="content",
+                    text=UNEXPOSED_TOOL_MESSAGE,
+                )
+
+                return
+
+            raise
+
     # ========================================================
     # STREAMING TOOL-CALLING REGISTRY
     # ========================================================
@@ -253,6 +292,8 @@ class AIGateway:
                 "No tools are registered for this request."
             )
 
+        exposed_names = {tool.name for tool in request.tools}
+
         # ====================================================
         # STEP 3: CREATE REQUEST-SCOPED TOOL SERVICE
         # ====================================================
@@ -268,8 +309,8 @@ class AIGateway:
         # STEP 4: INITIAL PROVIDER STREAM
         # ====================================================
 
-        provider_events = self._stream_provider_with_tools(
-            request
+        provider_events = self._guard_unexposed_tool_errors(
+            self._stream_provider_with_tools(request)
         )
 
         # ====================================================
@@ -364,6 +405,25 @@ class AIGateway:
                     # -----------------------------------------
                     # REAL STREAMING TOOL EXECUTION
                     # -----------------------------------------
+
+                    blocked_tools = [
+                        tc.name
+                        for tc in event.tool_calls
+                        if tc.name not in exposed_names
+                    ]
+
+                    if blocked_tools:
+                        print(
+                            "🚫 Blocked tool call(s) not exposed "
+                            f"to the model: {blocked_tools}"
+                        )
+
+                        yield AIStreamEvent(
+                            type="content",
+                            text=UNEXPOSED_TOOL_MESSAGE,
+                        )
+
+                        return
 
                     tool_results = []
 
@@ -481,7 +541,7 @@ class AIGateway:
                         )
                         request.tools = []
 
-                    provider_events = (
+                    provider_events = self._guard_unexposed_tool_errors(
                         self._stream_provider_with_tool_results(
                             request=request,
                             original_response=current_response,

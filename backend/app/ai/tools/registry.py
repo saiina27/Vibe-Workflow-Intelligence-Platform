@@ -1,5 +1,29 @@
+import re
+
 from app.ai.tools.base import BaseTool
 from app.schemas.ai import ToolDefinition
+
+CORE_TOOLS = {"search_web", "search_knowledge", "search_memory"}
+
+# Sirf read-only GitHub tools. Write tools yahan kabhi nahi aayenge.
+GITHUB_DEFAULT_READ_TOOLS = {
+    "get_me",
+    "list_commits",
+    "get_commit",
+    "list_branches",
+    "get_file_contents",
+    "list_pull_requests",
+}
+GITHUB_ISSUE_TOOLS = {"get_me", "list_issues", "issue_read", "search_issues"}
+GITHUB_SEARCH_TOOLS = {"get_me", "search_repositories", "search_code"}
+GITHUB_RELEASE_TOOLS = {
+    "get_me",
+    "list_releases",
+    "get_latest_release",
+    "list_tags",
+    "get_release_by_tag",
+}
+GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 
 
 class ToolRegistry:
@@ -56,6 +80,43 @@ class ToolRegistry:
             )
             for tool in self._tools.values()
         ]
+
+    @staticmethod
+    def _github_allowed_tools(prompt: str) -> set[str]:
+        """
+        Pick ONE read-only GitHub tool group by prompt intent
+        (priority: PR detail > issues > releases/tags > search >
+        default), plus the core Vibe tools. One group per prompt
+        keeps the request under Groq's 8000 TPM limit.
+        """
+
+        text = prompt.lower()
+        words = set(re.findall(r"[a-z0-9]+", text))
+
+        pr_detail = (
+            "files changed" in text
+            or "changed files" in text
+            or bool(words & {"review", "reviews", "reviewer", "reviewers"})
+            or re.search(r"\b(pr|pull request)\s*#?\d+", text) is not None
+        )
+
+        if pr_detail:
+            group = GITHUB_PR_DETAIL_TOOLS
+        elif words & {"issue", "issues", "bug", "bugs"}:
+            group = GITHUB_ISSUE_TOOLS
+        elif words & {
+            "release", "releases", "tag", "tags",
+            "version", "versions", "changelog",
+        }:
+            group = GITHUB_RELEASE_TOOLS
+        elif words & {"search", "find"} and words & {
+            "repo", "repos", "repository", "repositories", "code",
+        }:
+            group = GITHUB_SEARCH_TOOLS
+        else:
+            group = GITHUB_DEFAULT_READ_TOOLS
+
+        return group | CORE_TOOLS
 
     @staticmethod
     def _tools_for_only_use(prompt: str, tools: list) -> list:
@@ -134,22 +195,7 @@ class ToolRegistry:
         github_words = ("github", "repo", "commit", "branch")
 
         if any(word in prompt.lower() for word in github_words):
-            GITHUB_READ_TOOLS = {
-                "get_me",
-                "list_commits",
-                "get_commit",
-                "list_branches",
-                "get_file_contents",
-                "list_pull_requests",
-            }
-
-            CORE_TOOLS = {
-                "search_web",
-                "search_knowledge",
-                "search_memory",
-            }
-
-            allowed = GITHUB_READ_TOOLS | CORE_TOOLS
+            allowed = self._github_allowed_tools(prompt)
 
             selected = [
                 tool
