@@ -4,6 +4,8 @@ Vibe is a production-style AI backend built with FastAPI and PostgreSQL. It evol
 
 **Current milestone: Sprint 12 — MCP Integration ✅**
 
+🔗 **Live demo:** https://vibe-workflow-intelligence-platform.vercel.app (React frontend on Vercel, FastAPI backend on Render)
+
 ## ✨ What is Vibe?
 
 Vibe is built around one core idea: an AI assistant shouldn't just generate text — it should **remember**, **retrieve knowledge**, **use tools**, and **interact with the developer ecosystem**.
@@ -18,7 +20,7 @@ The system progressively adds:
 - Multi-provider LLM routing
 - Native tool calling
 - Tool permissions and execution logs
-- MCP-based external integrations (GitHub, Slack) via OAuth
+- MCP-based external integrations: GitHub (per-user PAT, read-only) and Slack (OAuth + PKCE)
 
 ## 🏗️ Architecture
 
@@ -133,8 +135,8 @@ User → LLM → Tool Selection → Arguments → Tool Execution → Tool Result
 Connects Vibe to the external developer ecosystem via the Model Context Protocol.
 
 - **MCP Core:** MCP client, server manager, server configuration, tool discovery, dynamic MCP-tool adaptation, plugin registry with enable/disable lifecycle, MCP permission management, user/workspace-scoped MCP runtimes
-- **🐙 GitHub MCP:** read PRs, issues, commits, and general development context. Runs with a user-scoped runtime identity in **read-only mode**, via GitHub OAuth + a Docker-based MCP server runtime, with dynamic tool discovery and registration.
-  > *Example: "Read my latest PR and tell me why it might be failing."*
+- **🐙 GitHub MCP:** connects to GitHub's hosted MCP server (`https://api.githubcopilot.com/mcp/`, streamable HTTP) using a per-user Personal Access Token. **Strictly read-only**: the model only sees allowlisted read tools, chosen per request by intent (see *GitHub Read-Only Tool Groups*). Covers commits, branches, files/README, pull requests, issues, repo/code search, releases and tags.
+  > *Example: "Check my repo Vibe and tell me the latest updates." (Vibe resolves the exact repo name, lists recent commits and answers in a table.)*
 - **💬 Slack MCP:** connects over Streamable HTTP with **PKCE-based OAuth**, supports searching Slack and retrieving relevant conversations for developer/team context.
   > *Example: "Search Slack for the discussion about the failing deployment and summarize what the team decided."*
 
@@ -145,10 +147,10 @@ OAuth Integration → Encrypted Access Token → MCP Integration Manager → MCP
 
 ## 🔐 OAuth & Security
 
-**GitHub OAuth**
+**GitHub PAT (per-user)**
 ```
-Vibe User → /oauth/github/connect → GitHub Authorization → /oauth/github/callback
-   → OAuth State Validation → Token Exchange → Encrypted Token Storage
+User pastes PAT in the UI → POST /oauth/github/pat → PAT validated against the GitHub API
+   → Fernet-encrypted storage → Hosted GitHub MCP (Bearer token) → read-only tools
 ```
 
 **Slack OAuth (with PKCE)**
@@ -161,10 +163,30 @@ Security mechanisms in place:
 - Authenticated OAuth connect endpoints
 - OAuth state persistence + CSRF protection via state validation
 - PKCE (S256) for the Slack MCP OAuth flow
-- Encrypted OAuth token storage
+- Fernet-encrypted storage for GitHub PATs and Slack OAuth tokens
 - User-scoped integration runtimes
 - Workspace/user permission checks before every tool execution
-- Read-only GitHub MCP configuration
+- Read-only GitHub access: allowlisted tool groups only; write tools are never exposed to the model
+- Tool calls outside the exposed set are blocked and never executed
+
+## 🐙 GitHub Read-Only Tool Groups
+
+Sending all 45 GitHub MCP tools to the LLM wastes tokens and would expose write tools. Vibe instead picks **one read-only group per request**, based on the user's latest message, and always adds the core tools (`search_web`, `search_knowledge`, `search_memory`).
+
+| Intent | Tools exposed |
+|---|---|
+| Commits, branches, files/README, PR list, repo name lookup (default) | `get_me`, `list_commits`, `get_commit`, `list_branches`, `get_file_contents`, `list_pull_requests`, `search_repositories` |
+| Issues | `get_me`, `list_issues`, `issue_read`, `search_issues` |
+| Repo / code search | `get_me`, `search_repositories`, `search_code` |
+| Releases / tags | `get_me`, `list_releases`, `get_latest_release`, `list_tags`, `get_release_by_tag` |
+| PR detail (files changed, reviews) | `get_me`, `list_pull_requests`, `pull_request_read` |
+
+Engineering notes:
+- Allowlist, not denylist: write tools (`push_files`, `merge_pull_request`, `delete_file`, ...) are in no group.
+- Intent is detected from the latest user message only, not the system prompt or chat history.
+- If a provider asks for a tool that was not exposed, the stream ends with a clear message instead of crashing the chat.
+- Groq free-tier limits: per-minute 429s are retried using the server's own wait hint, and only the last 8 messages go into the prompt.
+- Answers use tables for commits/branches/issues/PRs/repos and state only what tools returned.
 
 ## 🧩 Project Structure
 
@@ -216,7 +238,7 @@ PostgreSQL via SQLAlchemy ORM with Alembic migrations. Core tables: users, works
 | Messages | `/chats/{chat_id}/messages` | Send + list messages |
 | Memories | `/workspaces/{workspace_id}/memories` | Full CRUD |
 | Knowledge | `/workspaces/{workspace_id}/knowledge` | Upload, list, delete, semantic search |
-| OAuth | `/oauth` | `GET /github/connect`, `/github/callback`, `/slack/connect`, `/slack/callback` |
+| OAuth / Integrations | `/oauth` | GitHub: `GET /github/status`, `POST /github/pat`, `POST /github/disconnect` (PAT-based). Slack: `GET /slack/connect`, `/slack/callback` |
 
 All non-auth routes are protected via a `get_current_user` JWT dependency.
 
@@ -228,12 +250,12 @@ All non-auth routes are protected via a `get_current_user` JWT dependency.
 | Database | PostgreSQL, SQLAlchemy, Alembic, pgvector, psycopg2 |
 | AI / LLM | Gemini, Groq, multi-provider AI Gateway, function/tool calling, embeddings, RAG, semantic search |
 | MCP | MCP Python SDK, MCP Client, Server Manager, Tool Discovery, Tool Adapter, Plugin Registry, Permissions, GitHub MCP, Slack MCP |
-| Security | JWT, OAuth 2.0, PKCE, OAuth state/CSRF protection, encrypted OAuth tokens |
-| Dev tooling | pytest, pytest-asyncio, Docker runtime (GitHub MCP server), Git/GitHub |
+| Security | JWT, OAuth 2.0 + PKCE (Slack), per-user GitHub PAT, Fernet-encrypted tokens, OAuth state/CSRF protection |
+| Dev tooling | pytest, pytest-asyncio, Docker, Git/GitHub, Render (backend), Vercel (frontend) |
 
 ## 🧪 Testing
 
-The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **88 automated pytest test functions** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
+The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **97 automated pytest test functions** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
 
 ```bash
 pytest -q
@@ -278,17 +300,17 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
 GEMINI_API_KEY=<your-gemini-api-key>
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.5-flash
 
 GROQ_API_KEY=<your-groq-api-key>
-GROQ_MODEL=llama-3.3-70b-versatile
+GROQ_MODEL=openai/gpt-oss-20b
 
 TAVILY_API_KEY=<your-tavily-api-key>
 
 PRIMARY_PROVIDER=gemini
 FALLBACK_PROVIDER=groq
 
-# MCP / OAuth (optional — GitHub & Slack integrations)
+# Slack OAuth (optional). GitHub uses a per-user PAT entered in the UI.
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 GITHUB_REDIRECT_URI=
@@ -332,7 +354,7 @@ LLM → MCP Tool → Permission Layer → MCP Tool Adapter → MCP Client → Ex
 
 ## 🎯 Sprint 12 Scope
 
-**Included in V1:** MCP Client, Server Manager, Tool Discovery, Plugin Registry, Permission Management, GitHub MCP (PR/issue/commit/dev context), Slack MCP (search + conversation retrieval), GitHub OAuth, Slack OAuth (PKCE), provider-independent MCP architecture.
+**Included in V1:** MCP Client, Server Manager, Tool Discovery, Plugin Registry, Permission Management, GitHub MCP (PR/issue/commit/dev context), Slack MCP (search + conversation retrieval), GitHub PAT auth, Slack OAuth (PKCE), provider-independent MCP architecture.
 
 **Deferred (not in V1):** Notion, Jira, Google Drive, Gmail, Calendar, Filesystem — these can be added later through the same MCP integration boundary without redesigning the core.
 
@@ -365,7 +387,7 @@ Vibe evolved from a basic AI chat backend into a context-aware system combining 
 | JWT authentication | ✅ | MCP Client / Server Manager | ✅ |
 | Workspaces & persistent chat | ✅ | MCP Tool Discovery / Plugin Registry | ✅ |
 | Workspace memory & extraction | ✅ | MCP Permissions | ✅ |
-| Semantic memory recall | ✅ | GitHub MCP + OAuth | ✅ |
+| Semantic memory recall | ✅ | GitHub MCP (PAT, read-only) | ✅ |
 | Conversation summaries | ✅ | Slack MCP + OAuth (PKCE) | ✅ |
 | Chat intelligence (titles/topics) | ✅ | Slack search/context retrieval | ✅ |
 | RAG knowledge system | ✅ | **Sprint 12 (MCP Integration)** | **✅** |
