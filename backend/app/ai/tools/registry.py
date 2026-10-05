@@ -13,6 +13,7 @@ GITHUB_DEFAULT_READ_TOOLS = {
     "list_branches",
     "get_file_contents",
     "list_pull_requests",
+    "search_repositories",
 }
 GITHUB_ISSUE_TOOLS = {"get_me", "list_issues", "issue_read", "search_issues"}
 GITHUB_SEARCH_TOOLS = {"get_me", "search_repositories", "search_code"}

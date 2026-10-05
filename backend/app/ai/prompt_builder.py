@@ -129,6 +129,10 @@ list_pull_requests, get_file_contents). When the user asks to search
 their repositories, code, or issues, use search_repositories,
 search_code, or search_issues. Do not use web search for GitHub
 data; GitHub tools are the source of truth for the user's repos.
+If the user gives only a short or approximate repository name
+(for example "my repo vibe"), first call search_repositories with
+the query "owner:<username> <name>" to find the exact repository
+name, then use that exact name. Never guess a repository name.
 
 ### What I Can Help With
 

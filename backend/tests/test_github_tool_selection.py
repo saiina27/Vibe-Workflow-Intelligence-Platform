@@ -182,3 +182,13 @@ def test_prompt_keeps_only_recent_history_and_latest_message():
     assert "old question number 0" not in prompt
     assert "show the branches of my repo X" in prompt
     assert "RESPONSE FORMAT RULES" in prompt
+
+
+def test_partial_repo_name_prompt_can_resolve_repo(registry):
+    names = exposed(
+        registry,
+        full_prompt("CHECK MY REPO VIBE AND TELL ME UPDATES ABOUT IT"),
+    )
+    assert "search_repositories" in names
+    assert "list_commits" in names
+    assert not (names & set(GITHUB_WRITE))
