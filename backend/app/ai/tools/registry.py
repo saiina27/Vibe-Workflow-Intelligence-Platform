@@ -82,6 +82,32 @@ class ToolRegistry:
         ]
 
     @staticmethod
+    def _latest_user_text(prompt: str) -> str:
+        """
+        The prompt sent to the gateway also contains the long
+        system instructions and the whole chat history. Intent
+        must be detected only from the user's latest message.
+        """
+
+        text = prompt
+        marker = "CURRENT CONVERSATION"
+
+        if marker in text:
+            text = text.rsplit(marker, 1)[1]
+
+        end = text.find("RESPONSE INSTRUCTION")
+
+        if end != -1:
+            text = text[:end]
+
+        start = text.rfind("\nUser:")
+
+        if start != -1:
+            text = text[start + len("\nUser:"):]
+
+        return text.strip(" =\n")
+
+    @staticmethod
     def _github_allowed_tools(prompt: str) -> set[str]:
         """
         Pick ONE read-only GitHub tool group by prompt intent
@@ -90,7 +116,7 @@ class ToolRegistry:
         keeps the request under Groq's 8000 TPM limit.
         """
 
-        text = prompt.lower()
+        text = ToolRegistry._latest_user_text(prompt).lower()
         words = set(re.findall(r"[a-z0-9]+", text))
 
         pr_detail = (

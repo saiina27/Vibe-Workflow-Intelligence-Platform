@@ -125,3 +125,51 @@ def test_guard_reraises_other_errors():
 
     with pytest.raises(RuntimeError):
         list(AIGateway._guard_unexposed_tool_errors(boom()))
+
+
+# ---- Regression: selection must use only the latest user message ----
+from types import SimpleNamespace
+
+from app.ai.prompt_builder import build_prompt
+
+
+def full_prompt(user_text, earlier=None):
+    history = []
+    for text in earlier or []:
+        history.append(SimpleNamespace(role="user", content=text))
+        history.append(SimpleNamespace(role="assistant", content="ok"))
+    history.append(SimpleNamespace(role="user", content=user_text))
+
+    return build_prompt(
+        memories=[],
+        conversation_summary=None,
+        history=history,
+        knowledge_chunks=[],
+        include_memories=False,
+        include_knowledge=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "user_text, earlier, must_have, must_not",
+    [
+        ('search my github repos for "vibe"', None,
+         {"search_repositories", "search_code"}, {"list_issues"}),
+        (f"show the latest release and tags of my repo {REPO}", None,
+         {"list_releases", "list_tags"}, {"list_issues"}),
+        (f"show open issues in my repo {REPO}", None,
+         {"list_issues", "issue_read"}, {"list_releases"}),
+        (f"show the latest release and tags of my repo {REPO}",
+         [f"show open issues in my repo {REPO}"],
+         {"list_releases", "list_tags"}, {"list_issues"}),
+        (f"show the README of my repo {REPO}", None,
+         {"get_file_contents"}, {"list_issues", "list_releases"}),
+    ],
+)
+def test_full_prompt_uses_latest_message_only(
+    registry, user_text, earlier, must_have, must_not
+):
+    names = exposed(registry, full_prompt(user_text, earlier))
+    assert must_have <= names
+    assert not (must_not & names)
+    assert not (names & set(GITHUB_WRITE))
