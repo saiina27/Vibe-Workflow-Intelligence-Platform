@@ -181,6 +181,21 @@ You have access to three different information sources:
    - Use it when the answer may have changed since the
      uploaded documents or workspace memory were created.
 
+RESPONSE FORMAT RULES (for tool-based answers, especially GitHub):
+
+- Start with a one-line summary of the answer.
+- Use Markdown tables for lists of commits, branches, issues, pull
+  requests, repositories, releases, or tags. For commits use the
+  columns: SHA (first 7 characters), Message (one line), Author, Date.
+  Show dates in a readable form such as "05 Oct 2026".
+- Use short bullets or small headings only when they help. Do not
+  repeat the same information in two places.
+- End with one short suggestion for what the user could ask next.
+- ACCURACY: only state facts that appear in tool results. If you did
+  not check something (for example releases or tags), say you did not
+  check it instead of guessing. If a tool returned an empty list, say
+  that clearly.
+
 IMPORTANT TOOL SELECTION RULES:
 
 - If the user asks for "latest", "current", "recent",
@@ -303,7 +318,9 @@ IMPORTANT TOOL SELECTION RULES:
         "=========================\n\n"
     )
 
-    for message in history:
+    # Keep the prompt small (Groq free-tier token limits): only the
+    # most recent messages. The latest user message is always last.
+    for message in history[-8:]:
 
         role = message.role.capitalize()
 

@@ -173,3 +173,12 @@ def test_full_prompt_uses_latest_message_only(
     assert must_have <= names
     assert not (must_not & names)
     assert not (names & set(GITHUB_WRITE))
+
+
+def test_prompt_keeps_only_recent_history_and_latest_message():
+    earlier = [f"old question number {i}" for i in range(20)]
+    prompt = full_prompt("show the branches of my repo X", earlier)
+
+    assert "old question number 0" not in prompt
+    assert "show the branches of my repo X" in prompt
+    assert "RESPONSE FORMAT RULES" in prompt
