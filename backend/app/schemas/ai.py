@@ -109,7 +109,7 @@ class AIRequest(BaseModel):
 
     temperature: float = 0.7
 
-    max_tokens: int = 1000
+    max_tokens: int = 2500
 
     tools: list[ToolDefinition] = Field(
         default_factory=list
