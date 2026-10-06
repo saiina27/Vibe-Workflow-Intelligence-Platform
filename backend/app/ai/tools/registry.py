@@ -255,6 +255,11 @@ class ToolRegistry:
             if len(allowed | set(extra)) <= MAX_EXPOSED_TOOLS:
                 allowed |= set(extra)
 
+        # Mixed GitHub + Slack question: add one read-only Slack search
+        # tool if it still fits the token budget.
+        if "slack" in words and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
+            allowed.add("slack_search_public")
+
         return allowed
 
     @staticmethod
