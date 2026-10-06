@@ -321,6 +321,28 @@ class ToolRegistry:
                     for tool in selected
                 ]
 
+        # Non-GitHub prompts (PDF, memory, web, Slack): expose the fixed
+        # core tools plus Slack tools. GitHub tools stay hidden unless
+        # the latest message has GitHub intent.
+        if not scoped:
+            fixed = [
+                tool
+                for tool in tools
+                if tool.name in CORE_TOOLS
+                or getattr(tool, "plugin_name", None) == "slack"
+                or tool.name.startswith("slack_")
+            ]
+
+            if fixed:
+                return [
+                    ToolDefinition(
+                        name=tool.name,
+                        description=tool.description,
+                        parameters=tool.parameters,
+                    )
+                    for tool in fixed
+                ]
+
         if len(tools) <= max_tools:
             return [
                 ToolDefinition(
