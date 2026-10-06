@@ -26,6 +26,37 @@ GITHUB_RELEASE_TOOLS = {
 }
 GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 
+# Write/mutating GitHub tools. These are NEVER exposed to the model
+# and NEVER executed (see ToolCallingService).
+BLOCKED_WRITE_PREFIXES = (
+    "create_",
+    "update_",
+    "delete_",
+    "push_",
+    "merge_",
+    "fork_",
+    "add_",
+    "request_",
+    "run_",
+)
+BLOCKED_WRITE_SUFFIXES = ("_write",)
+
+
+def is_blocked_write_tool(name: str) -> bool:
+    """
+    True for any GitHub write/mutating tool name. Read tools
+    (get_*, list_*, search_*, issue_read, pull_request_read) pass.
+    """
+
+    if not name:
+        return False
+
+    lowered = name.lower()
+
+    return lowered.startswith(BLOCKED_WRITE_PREFIXES) or lowered.endswith(
+        BLOCKED_WRITE_SUFFIXES
+    )
+
 
 class ToolRegistry:
     """
@@ -208,7 +239,12 @@ class ToolRegistry:
         only limits the tool definitions exposed to the model.
         """
 
-        tools = self.list_tools()
+        # Hard block: write tools are never candidates, for any prompt.
+        tools = [
+            tool
+            for tool in self.list_tools()
+            if not is_blocked_write_tool(tool.name)
+        ]
 
         scoped = self._tools_for_only_use(prompt, tools)
 

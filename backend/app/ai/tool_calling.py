@@ -4,12 +4,34 @@ from typing import Any, Callable
 from app.ai.providers.base import AIProvider
 from app.ai.tools.context import ToolContext
 from app.ai.tools.executor import ToolExecutor
-from app.ai.tools.registry import ToolRegistry
+from app.ai.tools.registry import ToolRegistry, is_blocked_write_tool
 from app.repositories.tool_call_log_repository import (
     ToolCallLogRepository,
 )
 from app.schemas.ai import AIRequest, AIResponse, ToolResult
 from app.mcp.permissions import MCPPermissionService
+
+
+def _guard_read_only(executor) -> None:
+    """
+    Wrap executor.execute so GitHub write tools can never run,
+    even if a provider asks for one by name. The raised error is
+    returned to the model as a normal failed tool result.
+    """
+
+    original_execute = executor.execute
+
+    def guarded_execute(*args, **kwargs):
+        name = kwargs.get("tool_name") or (args[0] if args else None)
+
+        if is_blocked_write_tool(name):
+            raise PermissionError(
+                f"Tool '{name}' is blocked: Vibe is read-only."
+            )
+
+        return original_execute(*args, **kwargs)
+
+    executor.execute = guarded_execute
 
 
 class ToolCallingService:
@@ -77,6 +99,8 @@ class ToolCallingService:
             context,
             mcp_permission_service=mcp_permission_service,
         )
+
+        _guard_read_only(self.executor)
 
         self.provider = provider
         self.context = context
