@@ -167,23 +167,26 @@ Security mechanisms in place:
 - User-scoped integration runtimes
 - Workspace/user permission checks before every tool execution
 - Read-only GitHub access: allowlisted tool groups only; write tools are never exposed to the model
-- Tool calls outside the exposed set are blocked and never executed
+- GitHub write tools are blocked at execution time on every path; in the streaming chat path, any tool call outside the exposed set is also blocked
 
 ## 🐙 GitHub Read-Only Tool Groups
 
-Sending all 45 GitHub MCP tools to the LLM wastes tokens and would expose write tools. Vibe instead picks **one read-only group per request**, based on the user's latest message, and always adds the core tools (`search_web`, `search_knowledge`, `search_memory`).
+Sending all 45 GitHub MCP tools to the LLM wastes tokens and would expose write tools. Vibe instead picks the **read-only group(s) matching the request** (usually one), based on the user's latest message, and always adds the core tools (`search_web`, `search_knowledge`, `search_memory`).
 
 | Intent | Tools exposed |
 |---|---|
 | Commits, branches, files/README, PR list, repo name lookup (default) | `get_me`, `list_commits`, `get_commit`, `list_branches`, `get_file_contents`, `list_pull_requests`, `search_repositories` |
-| Issues | `get_me`, `list_issues`, `issue_read`, `search_issues` |
+| Issues | `get_me`, `list_issues`, `issue_read`, `search_issues`, `search_repositories` |
 | Repo / code search | `get_me`, `search_repositories`, `search_code` |
 | Releases / tags | `get_me`, `list_releases`, `get_latest_release`, `list_tags`, `get_release_by_tag` |
 | PR detail (files changed, reviews) | `get_me`, `list_pull_requests`, `pull_request_read` |
 
 Engineering notes:
-- Allowlist, not denylist: write tools (`push_files`, `merge_pull_request`, `delete_file`, ...) are in no group.
-- Intent is detected from the latest user message only, not the system prompt or chat history.
+- Read-only is enforced twice: write tools (`create_*`, `update_*`, `delete_*`, `push_*`, `merge_*`, ...) are never exposed to the model, and a guard in the executor blocks them even if a provider asks for one by name.
+- Intent is detected from the latest user message only, not the system prompt or chat history. Non-GitHub questions (PDF, memory, web) get a fixed set of core tools.
+- Multi-topic questions (for example issues and releases) combine groups, capped at 12 tools to fit Groq's token budget.
+- When a tool result is cut to fit the token budget, the model is told it was shortened and says so instead of claiming it saw the whole file.
+- Partial repo names (for example "my repo vibe") are resolved with `search_repositories` before any other call.
 - If a provider asks for a tool that was not exposed, the stream ends with a clear message instead of crashing the chat.
 - Groq free-tier limits: per-minute 429s are retried using the server's own wait hint, and only the last 8 messages go into the prompt.
 - Answers use tables for commits/branches/issues/PRs/repos and state only what tools returned.
@@ -255,7 +258,7 @@ All non-auth routes are protected via a `get_current_user` JWT dependency.
 
 ## 🧪 Testing
 
-The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **97 automated pytest test functions** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
+The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **206 automated pytest test cases** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
 
 ```bash
 pytest -q
@@ -392,6 +395,14 @@ Vibe evolved from a basic AI chat backend into a context-aware system combining 
 | Chat intelligence (titles/topics) | ✅ | Slack search/context retrieval | ✅ |
 | RAG knowledge system | ✅ | **Sprint 12 (MCP Integration)** | **✅** |
 | Gemini + Groq + AI Gateway | ✅ | | |
+
+## ⚠️ Known Limitations
+
+- **GitHub is read-only by design.** Vibe never creates issues, PRs or commits; it says so instead of offering to.
+- **No CI / checks data.** Questions like "why did my PR fail?" are not supported, because no such tool is exposed.
+- **Long tool results are shortened** (3,000 characters) before going to the model, and Vibe tells the user when that happened.
+- **Free-tier LLM limits.** Groq allows 8,000 tokens per minute and 200,000 per day, and Gemini sometimes returns 503, so tool-calling traffic mostly runs on Groq. Per-minute 429s are retried; daily limits are not.
+- **Slack** is implemented (OAuth + PKCE, search tools) but is not connected on the live demo account, so Slack answers are not part of the demo.
 
 ## 🚧 Future Extensions
 
