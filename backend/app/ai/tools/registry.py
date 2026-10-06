@@ -143,6 +143,35 @@ class ToolRegistry:
         return text.strip(" =\n")
 
     @staticmethod
+    def _is_github_intent(prompt: str) -> bool:
+        """
+        Decide GitHub intent from the user's latest message only
+        (the full prompt always contains the word "GitHub" in the
+        system instructions). Generic words like release/tag/bug
+        count only together with ownership words (my/mine/our).
+        """
+
+        text = ToolRegistry._latest_user_text(prompt).lower()
+        words = set(re.findall(r"[a-z0-9]+", text))
+
+        strong = {
+            "github", "repo", "repos", "repository", "repositories",
+            "commit", "commits", "branch", "branches", "readme",
+            "pr", "prs",
+        }
+
+        if words & strong or "pull request" in text:
+            return True
+
+        weak = {
+            "issue", "issues", "bug", "bugs", "release", "releases",
+            "tag", "tags", "changelog",
+        }
+        owner = {"my", "mine", "our"}
+
+        return bool(words & weak and words & owner)
+
+    @staticmethod
     def _github_allowed_tools(prompt: str) -> set[str]:
         """
         Pick ONE read-only GitHub tool group by prompt intent
@@ -273,9 +302,7 @@ class ToolRegistry:
         # read-only GitHub tools plus the core Vibe tools (web,
         # knowledge, memory). Keeps the request under Groq's token
         # limit and never exposes GitHub write tools.
-        github_words = ("github", "repo", "commit", "branch")
-
-        if any(word in prompt.lower() for word in github_words):
+        if self._is_github_intent(prompt):
             allowed = self._github_allowed_tools(prompt)
 
             selected = [
