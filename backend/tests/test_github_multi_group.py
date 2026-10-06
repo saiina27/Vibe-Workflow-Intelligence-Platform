@@ -70,3 +70,15 @@ def test_budget_never_exceeded(registry):
 )
 def test_multi_group_never_exposes_write_tools(registry, prompt):
     assert not (exposed(registry, prompt) & set(WRITE))
+
+
+def test_issues_group_can_resolve_repo_name(registry):
+    names = exposed(registry, "show my project issues")
+    assert {"list_issues", "issue_read", "search_repositories"} <= names
+    assert not (names & set(WRITE))
+
+
+def test_issues_and_releases_still_fit_budget(registry):
+    names = exposed(registry, f"show open issues and releases of {REPO}")
+    assert {"list_issues", "list_releases", "list_tags"} <= names
+    assert len(names) <= MAX_EXPOSED_TOOLS

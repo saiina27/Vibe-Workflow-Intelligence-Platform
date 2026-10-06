@@ -15,7 +15,13 @@ GITHUB_DEFAULT_READ_TOOLS = {
     "list_pull_requests",
     "search_repositories",
 }
-GITHUB_ISSUE_TOOLS = {"get_me", "list_issues", "issue_read", "search_issues"}
+GITHUB_ISSUE_TOOLS = {
+    "get_me",
+    "list_issues",
+    "issue_read",
+    "search_issues",
+    "search_repositories",
+}
 GITHUB_SEARCH_TOOLS = {"get_me", "search_repositories", "search_code"}
 GITHUB_RELEASE_TOOLS = {
     "get_me",
