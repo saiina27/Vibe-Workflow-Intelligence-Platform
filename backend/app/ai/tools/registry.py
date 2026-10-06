@@ -36,6 +36,14 @@ GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 # Max tools exposed to the model per request (Groq token budget).
 MAX_EXPOSED_TOOLS = 12
 
+# Words that suggest the answer may live in Slack (team messages).
+SLACK_INTENT_WORDS = {
+    "slack", "channel", "channels", "team", "teammates", "discussion",
+    "discussed", "message", "messages", "thread", "threads", "query",
+    "queries", "update", "updates", "decided", "decision",
+    "announcement", "announcements",
+}
+
 # Write/mutating GitHub tools. These are NEVER exposed to the model
 # and NEVER executed (see ToolCallingService).
 BLOCKED_WRITE_PREFIXES = (
@@ -203,7 +211,19 @@ class ToolRegistry:
         }
         owner = {"my", "mine", "our"}
 
-        return bool(words & weak and words & owner)
+        if words & weak and words & owner:
+            return True
+
+        # "any update / progress on my project (or Vibe)" -> GitHub activity
+        activity = {
+            "update", "updates", "changes", "changed", "activity",
+            "progress", "latest", "recent",
+        }
+        about_project = "vibe" in words or bool(
+            words & {"project", "projects"} and words & owner
+        )
+
+        return bool(words & activity and about_project)
 
     @staticmethod
     def _github_allowed_tools(prompt: str) -> set[str]:
@@ -257,7 +277,7 @@ class ToolRegistry:
 
         # Mixed GitHub + Slack question: add one read-only Slack search
         # tool if it still fits the token budget.
-        if "slack" in words and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
+        if words & SLACK_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
             allowed.add("slack_search_public")
 
         return allowed

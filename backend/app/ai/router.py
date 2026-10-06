@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 
 from app.ai.providers.registry import ProviderRegistry
@@ -17,6 +18,9 @@ class ProviderRouter:
             settings.primary_provider
         )
 
+        # provider name -> monotonic time until which it is skipped
+        self._cooldowns: dict[str, float] = {}
+
         self.fallback = None
 
         if settings.fallback_provider:
@@ -26,6 +30,40 @@ class ProviderRouter:
                     settings.fallback_provider
                 )
             )
+
+    def _in_cooldown(self, provider_name: str) -> bool:
+        until = self._cooldowns.get(provider_name)
+
+        return until is not None and time.monotonic() < until
+
+    def _record_failure(self, request: AIRequest, error: Exception) -> None:
+        """
+        After a quota (429) or overload (503) error, skip that
+        provider for a while so every request does not first fail on it.
+        """
+
+        if request.model == settings.gemini_model:
+            name = "gemini"
+        elif request.model == settings.groq_model:
+            name = "groq"
+        else:
+            return
+
+        if name == settings.fallback_provider:
+            return
+
+        text = str(error).lower()
+
+        if "429" in text or "resource_exhausted" in text or "quota" in text:
+            seconds = 1800
+        elif "503" in text or "unavailable" in text:
+            seconds = 120
+        else:
+            return
+
+        self._cooldowns[name] = time.monotonic() + seconds
+
+        print(f"⏸️ {name} skipped for {seconds}s after: {str(error)[:80]}")
 
     def _get_model_for_provider(
         self,
@@ -100,6 +138,21 @@ class ProviderRouter:
             request.model = self._get_model_for_provider(
                 provider_name
             )
+
+        if (
+            self.fallback is not None
+            and settings.fallback_provider
+            and provider_name != settings.fallback_provider
+            and self._in_cooldown(provider_name)
+        ):
+            print(
+                f"⏸️ {provider_name} is cooling down; "
+                f"using {settings.fallback_provider}"
+            )
+
+            provider = self.fallback
+            provider_name = settings.fallback_provider
+            request.model = self._get_model_for_provider(provider_name)
 
         print("=" * 60)
         print("AI ROUTING DECISION")
@@ -176,6 +229,8 @@ class ProviderRouter:
             )
 
         except Exception as primary_error:
+            self._record_failure(request, primary_error)
+
 
             print(
                 f"Primary provider failed: "
@@ -233,6 +288,8 @@ class ProviderRouter:
             )
 
         except Exception as primary_error:
+            self._record_failure(request, primary_error)
+
 
             print(
                 "Primary tool-calling provider failed: "
@@ -292,6 +349,8 @@ class ProviderRouter:
             )
 
         except Exception as primary_error:
+            self._record_failure(request, primary_error)
+
 
             print(
                 f"Primary streaming provider failed: "
@@ -340,6 +399,8 @@ class ProviderRouter:
             )
 
         except Exception as primary_error:
+            self._record_failure(request, primary_error)
+
 
             print(
                 "Primary tool-calling streaming "
