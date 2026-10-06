@@ -81,6 +81,11 @@ class ToolCallingService:
 
     MAX_TOOL_RESULT_CHARS = 3000
 
+    _TRUNCATION_NOTE = (
+        "[Result shortened to {n} characters. The full result was "
+        "not shown to you. Tell the user it was shortened.]"
+    )
+
     # Maximum number of provider → tool execution rounds.
     MAX_TOOL_ITERATIONS = 5
 
@@ -578,6 +583,15 @@ class ToolCallingService:
 
                     bounded["data"] = bounded_items
 
+                    if len(bounded_items) < len(data) or any(
+                        len(b) < len(str(orig))
+                        for b, orig in zip(bounded_items, data)
+                    ):
+                        bounded["_truncated"] = True
+                        bounded["_note"] = cls._TRUNCATION_NOTE.format(
+                            n=max_chars
+                        )
+
                 # -------------------------------------------
                 # STRING DATA
                 # -------------------------------------------
@@ -585,6 +599,12 @@ class ToolCallingService:
                 elif isinstance(data, str):
 
                     bounded["data"] = data[:max_chars]
+
+                    if len(data) > max_chars:
+                        bounded["_truncated"] = True
+                        bounded["_note"] = cls._TRUNCATION_NOTE.format(
+                            n=max_chars
+                        )
 
                 # -------------------------------------------
                 # OTHER DATA TYPES
@@ -597,6 +617,12 @@ class ToolCallingService:
                     bounded["data"] = (
                         data_text[:max_chars]
                     )
+
+                    if len(data_text) > max_chars:
+                        bounded["_truncated"] = True
+                        bounded["_note"] = cls._TRUNCATION_NOTE.format(
+                            n=max_chars
+                        )
 
             # -----------------------------------------------
             # ERROR
@@ -614,7 +640,14 @@ class ToolCallingService:
         # NON-DICT RESULT
         # ----------------------------------------------------
 
-        return str(result)[:max_chars]
+        text = str(result)
+
+        if len(text) > max_chars:
+            return text[:max_chars] + "\n" + cls._TRUNCATION_NOTE.format(
+                n=max_chars
+            )
+
+        return text
 
     # ========================================================
     # COMPLETE TOOL-CALLING LOOP
