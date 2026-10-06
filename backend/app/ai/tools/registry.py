@@ -26,6 +26,9 @@ GITHUB_RELEASE_TOOLS = {
 }
 GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 
+# Max tools exposed to the model per request (Groq token budget).
+MAX_EXPOSED_TOOLS = 12
+
 # Write/mutating GitHub tools. These are NEVER exposed to the model
 # and NEVER executed (see ToolCallingService).
 BLOCKED_WRITE_PREFIXES = (
@@ -158,23 +161,38 @@ class ToolRegistry:
             or re.search(r"\b(pr|pull request)\s*#?\d+", text) is not None
         )
 
+        # Collect every matching group (in priority order) so a
+        # multi-topic question gets all the tools it needs, but stop
+        # adding groups once the exposed set would exceed the budget.
+        matched = []
+
         if pr_detail:
-            group = GITHUB_PR_DETAIL_TOOLS
-        elif words & {"issue", "issues", "bug", "bugs"}:
-            group = GITHUB_ISSUE_TOOLS
-        elif words & {
+            matched.append(GITHUB_PR_DETAIL_TOOLS)
+
+        if words & {"issue", "issues", "bug", "bugs"}:
+            matched.append(GITHUB_ISSUE_TOOLS)
+
+        if words & {
             "release", "releases", "tag", "tags",
             "version", "versions", "changelog",
         }:
-            group = GITHUB_RELEASE_TOOLS
-        elif words & {"search", "find"} and words & {
+            matched.append(GITHUB_RELEASE_TOOLS)
+
+        if words & {"search", "find"} and words & {
             "repo", "repos", "repository", "repositories", "code",
         }:
-            group = GITHUB_SEARCH_TOOLS
-        else:
-            group = GITHUB_DEFAULT_READ_TOOLS
+            matched.append(GITHUB_SEARCH_TOOLS)
 
-        return group | CORE_TOOLS
+        if not matched:
+            matched.append(GITHUB_DEFAULT_READ_TOOLS)
+
+        allowed = set(CORE_TOOLS) | set(matched[0])
+
+        for extra in matched[1:]:
+            if len(allowed | set(extra)) <= MAX_EXPOSED_TOOLS:
+                allowed |= set(extra)
+
+        return allowed
 
     @staticmethod
     def _tools_for_only_use(prompt: str, tools: list) -> list:
