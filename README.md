@@ -408,3 +408,5 @@ Vibe demonstrates an end-to-end backend combining **FastAPI + PostgreSQL + SQLAl
 
 ---
 > `.venv/` and `uploads/` are local/runtime artifacts — keep them out of version control (`.gitignore`) and never commit real API keys or the `.env` file.
+
+Test line for PR check.
