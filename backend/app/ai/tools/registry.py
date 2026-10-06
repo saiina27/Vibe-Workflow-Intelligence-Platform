@@ -1,3 +1,4 @@
+import copy
 import re
 
 from app.ai.tools.base import BaseTool
@@ -121,6 +122,33 @@ class ToolRegistry:
             )
             for tool in self._tools.values()
         ]
+
+    @staticmethod
+    def _model_parameters(tool):
+        """
+        Parameters shown to the model. get_file_contents has an
+        optional `fields` array whose allowed values only fit
+        directory listings; the model sometimes sends invalid values
+        and the provider rejects the whole request. Hide it so file
+        reads use the plain path (owner, repo, path).
+        """
+
+        params = tool.parameters
+
+        if tool.name != "get_file_contents" or not isinstance(params, dict):
+            return params
+
+        cleaned = copy.deepcopy(params)
+
+        props = cleaned.get("properties")
+        if isinstance(props, dict):
+            props.pop("fields", None)
+
+        required = cleaned.get("required")
+        if isinstance(required, list) and "fields" in required:
+            cleaned["required"] = [r for r in required if r != "fields"]
+
+        return cleaned
 
     @staticmethod
     def _latest_user_text(prompt: str) -> str:
@@ -322,7 +350,7 @@ class ToolRegistry:
                     ToolDefinition(
                         name=tool.name,
                         description=tool.description,
-                        parameters=tool.parameters,
+                        parameters=self._model_parameters(tool),
                     )
                     for tool in selected
                 ]

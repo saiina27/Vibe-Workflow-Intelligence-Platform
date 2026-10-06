@@ -24,6 +24,12 @@ UNEXPOSED_TOOL_MESSAGE = (
 )
 
 
+INVALID_TOOL_ARGS_MESSAGE = (
+    "I couldn't complete that request because the tool was called "
+    "with invalid arguments. Please try asking again."
+)
+
+
 class AIGateway:
 
     def __init__(self):
@@ -173,13 +179,19 @@ class AIGateway:
                 or "tool call validation failed" in text
             ):
                 print(
-                    "🚫 Provider rejected an unexposed tool call: "
+                    "🚫 Provider rejected a tool call: "
                     f"{exc}"
+                )
+
+                message = (
+                    UNEXPOSED_TOOL_MESSAGE
+                    if "not in request.tools" in text
+                    else INVALID_TOOL_ARGS_MESSAGE
                 )
 
                 yield AIStreamEvent(
                     type="content",
-                    text=UNEXPOSED_TOOL_MESSAGE,
+                    text=message,
                 )
 
                 return
