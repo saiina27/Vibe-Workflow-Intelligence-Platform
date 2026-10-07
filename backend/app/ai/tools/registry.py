@@ -185,6 +185,38 @@ class ToolRegistry:
         return text.strip(" =\n")
 
     @staticmethod
+    def _intent_text(prompt: str) -> str:
+        """
+        Text used to detect intent: the latest user message. If it is
+        a very short follow-up (for example just "vibe" after "which
+        repo?"), the previous user message is included as well.
+        """
+
+        latest = ToolRegistry._latest_user_text(prompt)
+
+        if len(latest.split()) > 3:
+            return latest
+
+        text = prompt
+        marker = "CURRENT CONVERSATION"
+
+        if marker in text:
+            text = text.rsplit(marker, 1)[1]
+
+        end = text.find("RESPONSE INSTRUCTION")
+
+        if end != -1:
+            text = text[:end]
+
+        chunks = text.split("\nUser:")
+
+        if len(chunks) >= 3:
+            previous = chunks[-2].split("\nAssistant:")[0]
+            return (previous + " " + latest).strip()
+
+        return latest
+
+    @staticmethod
     def _is_github_intent(prompt: str) -> bool:
         """
         Decide GitHub intent from the user's latest message only
@@ -193,7 +225,7 @@ class ToolRegistry:
         count only together with ownership words (my/mine/our).
         """
 
-        text = ToolRegistry._latest_user_text(prompt).lower()
+        text = ToolRegistry._intent_text(prompt).lower()
         words = set(re.findall(r"[a-z0-9]+", text))
 
         strong = {
@@ -234,7 +266,7 @@ class ToolRegistry:
         keeps the request under Groq's 8000 TPM limit.
         """
 
-        text = ToolRegistry._latest_user_text(prompt).lower()
+        text = ToolRegistry._intent_text(prompt).lower()
         words = set(re.findall(r"[a-z0-9]+", text))
 
         pr_detail = (

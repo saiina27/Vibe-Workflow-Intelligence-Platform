@@ -198,6 +198,9 @@ TOOL CHOICE RULES (GitHub, Slack, memory):
   for team messages, and the GitHub tools for recent commits or pull
   requests. Use at most three tool calls, then answer and say which
   source each fact came from.
+- Do not ask the user which repository they mean before trying: call
+  get_me, then search_repositories with "owner:<username> <name>",
+  and ask only if nothing matches.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 
