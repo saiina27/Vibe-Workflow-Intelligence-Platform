@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from app.models.conversation_summary import ConversationSummary
 from app.models.message import Message
 from app.models.workspace_memory import WorkspaceMemory
@@ -206,7 +208,9 @@ TOOL CHOICE RULES (GitHub, Slack, memory):
   5 Oct chat" or "last week"), call search_chats. Use date_from and
   date_to as YYYY-MM-DD (MM-DD if the year is unknown), or last_days
   for relative periods, plus short keywords. Say the answer comes
-  from saved chats and may be partial.
+  from saved chats and may be partial. If search_chats returns
+  nothing, say that no saved chat matched; do not repeat the
+  search more than once.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 
@@ -275,6 +279,15 @@ IMPORTANT TOOL SELECTION RULES:
     # ========================================================
     # WORKSPACE MEMORY
     # ========================================================
+
+    today_ist = datetime.utcnow() + timedelta(hours=5, minutes=30)
+
+    prompt += (
+        f"\nTODAY'S DATE (IST): {today_ist:%Y-%m-%d}. Use it to resolve "
+        "relative dates such as yesterday or last week. When the user "
+        "gives a day and month without a year, use the current year. "
+        "Never assume another year.\n"
+    )
 
     if include_memories and memories:
 

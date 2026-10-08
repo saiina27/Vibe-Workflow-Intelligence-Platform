@@ -98,22 +98,22 @@ class ChatSearchTool(BaseTool):
             "type": "object",
             "properties": {
                 "keywords": {
-                    "type": "array",
+                    "type": ["array", "null"],
                     "items": {"type": "string"},
                     "description": "Up to 5 short keywords (any match).",
                 },
                 "date_from": {
-                    "type": "string",
+                    "type": ["string", "null"],
                     "description": "Start day, YYYY-MM-DD or MM-DD.",
                 },
                 "date_to": {
-                    "type": "string",
+                    "type": ["string", "null"],
                     "description": (
                         "End day (inclusive). Defaults to date_from."
                     ),
                 },
                 "last_days": {
-                    "type": "integer",
+                    "type": ["integer", "null"],
                     "description": "Search only the last N days (1-90).",
                 },
             },

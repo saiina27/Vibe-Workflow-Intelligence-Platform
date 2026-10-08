@@ -205,3 +205,34 @@ def test_prompt_mentions_search_chats():
         include_knowledge=False,
     )
     assert "search_chats" in prompt
+
+
+def test_search_chats_optional_params_accept_null():
+    tool = ChatSearchTool(ToolContext(db=None, workspace_id=1, user_id=1))
+    props = tool.parameters["properties"]
+
+    for key in ("keywords", "date_from", "date_to", "last_days"):
+        assert "null" in props[key]["type"]
+
+
+def test_prompt_contains_todays_date():
+    from datetime import timedelta
+
+    prompt = build_prompt(
+        memories=[], conversation_summary=None,
+        history=[SimpleNamespace(role="user", content="hi")],
+        knowledge_chunks=[], include_memories=False,
+        include_knowledge=False,
+    )
+    year = str((datetime.utcnow() + timedelta(hours=5, minutes=30)).year)
+
+    assert "TODAY'S DATE (IST)" in prompt
+    assert year in prompt
+
+
+def test_null_arguments_are_handled(monkeypatch):
+    tool, _ = make_tool(monkeypatch)
+    out = tool.execute(
+        keywords=["jwt"], date_from=None, date_to=None, last_days=None
+    )
+    assert out["success"] is True
