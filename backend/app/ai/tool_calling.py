@@ -1,3 +1,4 @@
+import json
 import time
 from typing import Any, Callable
 
@@ -10,6 +11,52 @@ from app.repositories.tool_call_log_repository import (
 )
 from app.schemas.ai import AIRequest, AIResponse, ToolResult
 from app.mcp.permissions import MCPPermissionService
+
+
+MAX_LOGGED_RESULT_CHARS = 20000
+
+
+def _json_safe(value: Any) -> Any:
+    """
+    Convert tool results (for example MCP CallToolResult objects)
+    into plain JSON so they can be stored in the JSONB log column.
+    Very large results are cut to a preview.
+    """
+
+    def convert(item: Any) -> Any:
+        if item is None or isinstance(item, (str, int, float, bool)):
+            return item
+
+        if isinstance(item, dict):
+            return {str(k): convert(v) for k, v in item.items()}
+
+        if isinstance(item, (list, tuple, set)):
+            return [convert(v) for v in item]
+
+        dump = getattr(item, "model_dump", None)
+
+        if callable(dump):
+            try:
+                return convert(dump(mode="json"))
+            except Exception:
+                pass
+
+        return str(item)
+
+    safe = convert(value)
+
+    try:
+        text = json.dumps(safe)
+    except (TypeError, ValueError):
+        return {"_unserializable": True, "preview": str(value)[:2000]}
+
+    if len(text) > MAX_LOGGED_RESULT_CHARS:
+        return {
+            "_truncated": True,
+            "preview": text[:MAX_LOGGED_RESULT_CHARS],
+        }
+
+    return safe
 
 
 def _guard_read_only(executor) -> None:
@@ -173,7 +220,7 @@ class ToolCallingService:
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
                 arguments=arguments or {},
-                result=result,
+                result=_json_safe(result),
                 status=status,
                 error=error,
                 duration_ms=duration_ms,
