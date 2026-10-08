@@ -11,3 +11,5 @@ from app.models.knowledge_chunk import KnowledgeChunk
 from app.models.tool_call_log import ToolCallLog
 from app.models.external_integration import ExternalIntegration
 from app.models.oauth_state import OAuthState
+from app.models.tracked_repo import TrackedRepo
+from app.models.dev_event import DevEvent

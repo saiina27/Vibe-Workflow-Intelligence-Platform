@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     auth,
     chats,
+    dev_events,
     health,
     knowledge,
     knowledge_test,
@@ -26,3 +27,4 @@ api_router.include_router(memories.router)
 api_router.include_router(knowledge.router)
 api_router.include_router(knowledge_test.router)
 api_router.include_router(oauth.router)
+api_router.include_router(dev_events.router)
