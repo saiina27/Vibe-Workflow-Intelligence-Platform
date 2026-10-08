@@ -26,6 +26,7 @@ def test_default_tools_are_allowed():
         "search_memory",
         "search_knowledge",
         "search_web",
+        "search_chats",
         "github",
         "slack",
     }

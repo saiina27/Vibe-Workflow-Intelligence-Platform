@@ -201,6 +201,12 @@ TOOL CHOICE RULES (GitHub, Slack, memory):
 - Do not ask the user which repository they mean before trying: call
   get_me, then search_repositories with "owner:<username> <name>",
   and ask only if nothing matches.
+- If the user asks about an earlier Vibe chat, or what was done,
+  discussed or changed on a past date or period (for example "the
+  5 Oct chat" or "last week"), call search_chats. Use date_from and
+  date_to as YYYY-MM-DD (MM-DD if the year is unknown), or last_days
+  for relative periods, plus short keywords. Say the answer comes
+  from saved chats and may be partial.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 

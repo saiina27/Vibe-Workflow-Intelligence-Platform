@@ -36,6 +36,12 @@ GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 # Max tools exposed to the model per request (Groq token budget).
 MAX_EXPOSED_TOOLS = 12
 
+# Words that suggest the user means an earlier Vibe chat.
+CHAT_INTENT_WORDS = {
+    "chat", "chats", "conversation", "conversations",
+    "earlier", "previous", "yesterday",
+}
+
 # Words that suggest the answer may live in Slack (team messages).
 SLACK_INTENT_WORDS = {
     "slack", "channel", "channels", "team", "teammates", "discussion",
@@ -312,6 +318,9 @@ class ToolRegistry:
         if words & SLACK_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
             allowed.add("slack_search_public")
 
+        if words & CHAT_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
+            allowed.add("search_chats")
+
         return allowed
 
     @staticmethod
@@ -420,6 +429,7 @@ class ToolRegistry:
                 tool
                 for tool in tools
                 if tool.name in CORE_TOOLS
+                or tool.name == "search_chats"
                 or getattr(tool, "plugin_name", None) == "slack"
                 or tool.name.startswith("slack_")
             ]

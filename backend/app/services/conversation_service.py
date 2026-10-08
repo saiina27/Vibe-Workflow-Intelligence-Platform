@@ -368,6 +368,7 @@ async def ask_ai(
         db=db,
         workspace_id=chat.workspace_id,
         user_id=user_id,
+        chat_id=chat_id,
     )
 
     logger.info(
@@ -1591,6 +1592,7 @@ def stream_ai_response(
                 db=db,
                 workspace_id=chat.workspace_id,
                 user_id=user_id,
+                chat_id=chat_id,
             )
 
             logger.info(

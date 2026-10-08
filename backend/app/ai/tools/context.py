@@ -30,6 +30,10 @@ class ToolContext:
         default=None
     )
 
+    # Current chat. Set by the application, never by the LLM, so tools
+    # can exclude the conversation that is asking.
+    chat_id: int | None = None
+
     def is_tool_allowed(
         self,
         tool_name: str,

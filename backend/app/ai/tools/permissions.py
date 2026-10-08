@@ -40,6 +40,7 @@ class ToolPermissionService:
         "search_memory",
         "search_knowledge",
         "search_web",
+        "search_chats",
         "github",
 
         # ====================================================
