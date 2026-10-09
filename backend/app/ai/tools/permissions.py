@@ -41,6 +41,7 @@ class ToolPermissionService:
         "search_knowledge",
         "search_web",
         "search_chats",
+        "search_history",
         "github",
 
         # ====================================================

@@ -376,3 +376,52 @@ def parse_repo_names(text: str) -> list[str]:
             names.append(name)
 
     return names
+
+
+def _like(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
+def search_events(
+    db: Session,
+    workspace_id: int,
+    keywords: list[str] | None = None,
+    start: datetime | None = None,
+    end: datetime | None = None,
+    event_type: str | None = None,
+    repo: str | None = None,
+    limit: int = 15,
+) -> list[DevEvent]:
+    """Search stored events of one workspace, newest first."""
+
+    from sqlalchemy import or_
+
+    query = db.query(DevEvent).filter(DevEvent.workspace_id == workspace_id)
+
+    if start is not None:
+        query = query.filter(DevEvent.occurred_at >= start)
+
+    if end is not None:
+        query = query.filter(DevEvent.occurred_at < end)
+
+    if event_type:
+        query = query.filter(DevEvent.event_type == event_type)
+
+    if repo:
+        query = query.filter(DevEvent.repo.ilike(_like(repo), escape="\\"))
+
+    if keywords:
+        clauses = []
+
+        for k in keywords:
+            clauses.append(DevEvent.title.ilike(_like(k), escape="\\"))
+            clauses.append(DevEvent.author.ilike(_like(k), escape="\\"))
+
+        query = query.filter(or_(*clauses))
+
+    return (
+        query.order_by(DevEvent.occurred_at.desc())
+        .limit(max(1, min(limit, 50)))
+        .all()
+    )

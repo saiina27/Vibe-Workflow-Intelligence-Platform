@@ -42,6 +42,12 @@ CHAT_INTENT_WORDS = {
     "earlier", "previous", "yesterday",
 }
 
+# Words that suggest the user wants saved development history.
+HISTORY_INTENT_WORDS = {
+    "history", "activity", "timeline", "happened", "changed", "changes",
+    "week", "yesterday", "today", "past",
+}
+
 # Words that suggest the answer may live in Slack (team messages).
 SLACK_INTENT_WORDS = {
     "slack", "channel", "channels", "team", "teammates", "discussion",
@@ -321,6 +327,9 @@ class ToolRegistry:
         if words & CHAT_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
             allowed.add("search_chats")
 
+        if words & HISTORY_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
+            allowed.add("search_history")
+
         return allowed
 
     @staticmethod
@@ -430,6 +439,7 @@ class ToolRegistry:
                 for tool in tools
                 if tool.name in CORE_TOOLS
                 or tool.name == "search_chats"
+                or tool.name == "search_history"
                 or getattr(tool, "plugin_name", None) == "slack"
                 or tool.name.startswith("slack_")
             ]

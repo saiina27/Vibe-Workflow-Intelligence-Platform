@@ -1,6 +1,7 @@
 from app.ai.tools.context import ToolContext
 from app.ai.tools.knowledge_tool import KnowledgeTool
 from app.ai.tools.chat_search_tool import ChatSearchTool
+from app.ai.tools.history_search_tool import HistorySearchTool
 from app.ai.tools.memory_tool import MemoryTool
 from app.ai.tools.permissions import (
     tool_permission_service,
@@ -74,6 +75,16 @@ class ToolRouter:
 
             registry.register(
                 ChatSearchTool(context)
+            )
+
+        # ====================================================
+        # SAVED DEVELOPER HISTORY (commits, pull requests)
+        # ====================================================
+
+        if "search_history" in allowed_tools:
+
+            registry.register(
+                HistorySearchTool(context)
             )
 
         # ====================================================
