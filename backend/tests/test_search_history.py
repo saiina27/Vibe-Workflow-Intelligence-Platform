@@ -175,3 +175,57 @@ def test_prompt_mentions_search_history():
         include_knowledge=False,
     )
     assert "search_history" in prompt
+
+
+def test_past_period_hides_live_list_tools_but_keeps_history():
+    names = exposed("last week mein kaun se pull requests bane the")
+    assert "search_history" in names
+    assert "list_pull_requests" not in names
+    assert "list_commits" not in names
+    assert {"get_me", "search_repositories"} <= names
+
+
+def test_date_in_question_uses_history_path():
+    names = exposed("5 Oct ko mere repo ke commits kya the")
+    assert "search_history" in names
+    assert "list_commits" not in names
+
+    iso = exposed("show commits of my repo X on 2026-10-05")
+    assert "search_history" in iso and "list_commits" not in iso
+
+
+def test_latest_questions_still_use_live_tools():
+    names = exposed("show the latest commits of my repo X")
+    assert "list_commits" in names
+    assert "search_history" not in names
+
+
+def test_commit_history_wording_keeps_live_tools():
+    names = exposed("show the commit history of my repo X")
+    assert "list_commits" in names
+    assert "search_history" in names
+
+
+def test_decision_word_is_not_a_date():
+    assert "list_commits" in exposed("show the decision 2 commits of my repo X")
+
+
+def test_history_prompt_rules():
+    prompt = build_prompt(
+        memories=[], conversation_summary=None,
+        history=[SimpleNamespace(role="user", content="hi")],
+        knowledge_chunks=[], include_memories=False,
+        include_knowledge=False,
+    )
+    assert "never ask which" in prompt
+    assert "owner:<username>" not in prompt
+
+
+def test_prompt_has_no_angle_bracket_owner_placeholders():
+    prompt = build_prompt(
+        memories=[], conversation_summary=None,
+        history=[SimpleNamespace(role="user", content="hi")],
+        knowledge_chunks=[], include_memories=False,
+        include_knowledge=False,
+    )
+    assert "owner:<" not in prompt

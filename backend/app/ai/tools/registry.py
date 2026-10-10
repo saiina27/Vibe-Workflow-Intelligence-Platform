@@ -48,6 +48,27 @@ HISTORY_INTENT_WORDS = {
     "week", "yesterday", "today", "past",
 }
 
+# Words and dates that point to a past period ("last week", "5 Oct").
+PAST_PERIOD_WORDS = {
+    "week", "weeks", "yesterday", "month", "months", "ago", "earlier",
+}
+
+_MONTH = (
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
+    r"aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+
+_DATE_PATTERN = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}\s*" + _MONTH + r"\b"
+    r"|\b" + _MONTH + r"\s*\d{1,2}\b"
+)
+
+
+def _is_past_period_question(text: str, words: set) -> bool:
+    return bool(words & PAST_PERIOD_WORDS) or bool(_DATE_PATTERN.search(text))
+
+
 # Words that suggest the answer may live in Slack (team messages).
 SLACK_INTENT_WORDS = {
     "slack", "channel", "channels", "team", "teammates", "discussion",
@@ -327,8 +348,17 @@ class ToolRegistry:
         if words & CHAT_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
             allowed.add("search_chats")
 
-        if words & HISTORY_INTENT_WORDS and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
+        past_period = _is_past_period_question(text, words)
+
+        if (
+            words & HISTORY_INTENT_WORDS or past_period
+        ) and len(allowed) + 1 <= MAX_EXPOSED_TOOLS:
             allowed.add("search_history")
+
+        # Past-period questions are answered from saved history, so the
+        # live list tools are hidden (they cost many tokens and rounds).
+        if past_period and "search_history" in allowed:
+            allowed -= {"list_commits", "list_pull_requests"}
 
         return allowed
 
