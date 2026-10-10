@@ -223,6 +223,9 @@ TOOL CHOICE RULES (GitHub, Slack, memory):
   search_history covers all tracked repositories, so never ask which
   repository for these questions. Also use it, with keywords, for
   questions like "was there ever a commit or pull request about X".
+  Never answer "nothing found" or "no commit mentions X" from a
+  shortened live list: if you only saw part of a list, say so and use
+  the saved-history search instead.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 

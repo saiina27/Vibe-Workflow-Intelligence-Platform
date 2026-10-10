@@ -46,6 +46,9 @@ CHAT_INTENT_WORDS = {
 HISTORY_INTENT_WORDS = {
     "history", "activity", "timeline", "happened", "changed", "changes",
     "week", "yesterday", "today", "past",
+    # existence questions ("was there ever a commit about X?")
+    "ever", "mention", "mentions", "mentioned",
+    "hua", "hue", "hui", "tha", "thi", "kiya", "kiye",
 }
 
 # Words and dates that point to a past period ("last week", "5 Oct").

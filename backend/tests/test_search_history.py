@@ -229,3 +229,25 @@ def test_prompt_has_no_angle_bracket_owner_placeholders():
         include_knowledge=False,
     )
     assert "owner:<" not in prompt
+
+
+def test_existence_questions_expose_history_without_hiding_live_tools():
+    for text in (
+        "rate limiting ke baare mein koi commit hua tha kya",
+        "was there ever a commit about rate limiting in my repo X",
+    ):
+        names = exposed(text)
+        assert "search_history" in names
+        assert "list_commits" in names
+        assert len(names) <= MAX_EXPOSED_TOOLS
+        assert "create_pull_request" not in names
+
+
+def test_prompt_forbids_nothing_found_from_shortened_lists():
+    prompt = build_prompt(
+        memories=[], conversation_summary=None,
+        history=[SimpleNamespace(role="user", content="hi")],
+        knowledge_chunks=[], include_memories=False,
+        include_knowledge=False,
+    )
+    assert "shortened live list" in prompt
