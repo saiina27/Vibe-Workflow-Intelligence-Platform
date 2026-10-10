@@ -651,3 +651,106 @@ export async function disconnectSlack() {
     { method: 'DELETE' },
   )
 }
+
+
+/* =========================
+DEVELOPER HISTORY
+========================= */
+
+export interface TrackedRepo {
+  id: number
+  full_name: string
+  last_synced_at: string | null
+}
+
+export interface DevEvent {
+  id: number
+  source: string
+  repo: string
+  event_type: string
+  title: string
+  author: string | null
+  url: string | null
+  detail: string | null
+  occurred_at: string
+}
+
+export interface SyncResult {
+  repo: string
+  events?: number
+  new?: number
+  updated?: number
+  same?: number
+  error?: string
+}
+
+export async function getTrackedRepos(
+  workspaceId: number,
+): Promise<TrackedRepo[]> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/tracked-repos`,
+  )
+}
+
+export async function addTrackedRepo(
+  workspaceId: number,
+  fullName: string,
+): Promise<TrackedRepo> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/tracked-repos`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ full_name: fullName }),
+    },
+  )
+}
+
+export async function removeTrackedRepo(
+  workspaceId: number,
+  repoId: number,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/tracked-repos/${repoId}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function getGithubRepos(
+  workspaceId: number,
+): Promise<{ repos: string[] }> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/github/repos`,
+  )
+}
+
+export async function syncDevEvents(
+  workspaceId: number,
+): Promise<{ results: SyncResult[] }> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/dev-events/sync`,
+    { method: 'POST' },
+  )
+}
+
+export async function getDevEvents(
+  workspaceId: number,
+  filters: {
+    repo?: string
+    eventType?: string
+    days?: number
+    limit?: number
+  } = {},
+): Promise<DevEvent[]> {
+  const params = new URLSearchParams()
+
+  if (filters.repo) params.set('repo', filters.repo)
+  if (filters.eventType) {
+    params.set('event_type', filters.eventType)
+  }
+  params.set('days', String(filters.days ?? 30))
+  params.set('limit', String(filters.limit ?? 100))
+
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/dev-events?${params.toString()}`,
+  )
+}

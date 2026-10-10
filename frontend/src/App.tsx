@@ -48,6 +48,8 @@ import type {
   Workspace,
 } from './types/chat'
 
+import ActivityPanel from './components/ActivityPanel'
+
 type ToolStatus =
   | 'running'
   | 'done'
@@ -67,6 +69,9 @@ function App() {
   )
 
   const [showSignup, setShowSignup] =
+    useState(false)
+
+  const [showActivity, setShowActivity] =
     useState(false)
 
   const [githubConnected, setGithubConnected] =
@@ -2467,6 +2472,28 @@ function App() {
           >
             + New Chat
           </button>
+
+          <button
+            type="button"
+            className="sidebar-activity-button"
+            disabled={!workspace}
+            onClick={() => {
+              setShowActivity(true)
+              setSidebarOpen(false)
+            }}
+          >
+            Activity
+          </button>
+
+          {showActivity &&
+            workspace &&
+            createPortal(
+              <ActivityPanel
+                workspaceId={workspace.id}
+                onClose={() => setShowActivity(false)}
+              />,
+              document.body,
+            )}
 
           <div className="sidebar-section">
 
