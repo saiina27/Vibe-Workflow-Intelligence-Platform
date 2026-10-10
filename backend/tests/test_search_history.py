@@ -231,14 +231,15 @@ def test_prompt_has_no_angle_bracket_owner_placeholders():
     assert "owner:<" not in prompt
 
 
-def test_existence_questions_expose_history_without_hiding_live_tools():
+def test_existence_questions_use_history_and_hide_live_list_tools():
     for text in (
         "rate limiting ke baare mein koi commit hua tha kya",
         "was there ever a commit about rate limiting in my repo X",
     ):
         names = exposed(text)
         assert "search_history" in names
-        assert "list_commits" in names
+        assert "list_commits" not in names
+        assert "list_pull_requests" not in names
         assert len(names) <= MAX_EXPOSED_TOOLS
         assert "create_pull_request" not in names
 
@@ -251,3 +252,36 @@ def test_prompt_forbids_nothing_found_from_shortened_lists():
         include_knowledge=False,
     )
     assert "shortened live list" in prompt
+
+
+def test_short_followup_after_existence_question_keeps_history_path():
+    prompt = build_prompt(
+        memories=[], conversation_summary=None,
+        history=[
+            SimpleNamespace(role="user", content="rate limiting ke baare mein koi commit hua tha kya"),
+            SimpleNamespace(role="assistant", content="Which repository?"),
+            SimpleNamespace(role="user", content="vibe"),
+        ],
+        knowledge_chunks=[], include_memories=False,
+        include_knowledge=False,
+    )
+    reg = ToolRegistry()
+    for n in ("get_me", "list_commits", "list_pull_requests",
+              "search_repositories", "create_pull_request"):
+        reg.register(FakeTool(n, "github"))
+    for n in ("search_web", "search_knowledge", "search_memory",
+              "search_chats", "search_history"):
+        reg.register(FakeTool(n))
+
+    names = {d.name for d in reg.definitions_for_prompt(prompt)}
+    assert "search_history" in names
+    assert "list_commits" not in names
+
+
+def test_live_words_keep_live_tools_even_with_existence_words():
+    names = exposed("latest commit kya hua in my repo X")
+    # Live tools stay visible. search_history may also be present
+    # (extra, within the tool budget).
+    assert "list_commits" in names
+    assert len(names) <= MAX_EXPOSED_TOOLS
+    assert "create_pull_request" not in names

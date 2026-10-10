@@ -68,8 +68,25 @@ _DATE_PATTERN = re.compile(
 )
 
 
+# "was there ever a commit about X?" is answered from saved history too.
+EXISTENCE_WORDS = {
+    "ever", "mention", "mentions", "mentioned",
+    "hua", "hue", "hui", "tha", "thi", "kiya", "kiye",
+}
+
+# Words that ask for the live, current state, so live tools stay visible.
+LIVE_WORDS = {"latest", "newest", "current", "now", "abhi"}
+
+
 def _is_past_period_question(text: str, words: set) -> bool:
-    return bool(words & PAST_PERIOD_WORDS) or bool(_DATE_PATTERN.search(text))
+    if words & LIVE_WORDS:
+        return False
+
+    return (
+        bool(words & PAST_PERIOD_WORDS)
+        or bool(words & EXISTENCE_WORDS)
+        or bool(_DATE_PATTERN.search(text))
+    )
 
 
 # Words that suggest the answer may live in Slack (team messages).
