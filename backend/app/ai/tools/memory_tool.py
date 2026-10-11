@@ -41,7 +41,9 @@ class MemoryTool(BaseTool):
             "Do NOT use this tool for general public facts, "
             "current events, latest information, software releases, "
             "recent changes, or external information. "
-            "For current or latest information, use search_web instead."
+            "For current or latest information, use search_web instead. "
+            "To list or look up the user's recorded decisions (what was "
+            "decided and why), set memory_type to \"decision\"."
         )
 
     @property
@@ -56,6 +58,14 @@ class MemoryTool(BaseTool):
                         "information to search for in memory."
                     ),
                 },
+                "memory_type": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Optional filter: decision, fact, preference, "
+                        "goal, project or task. Use decision for "
+                        "questions about what was decided and why."
+                    ),
+                },
             },
             "required": ["query"],
         }
@@ -63,6 +73,7 @@ class MemoryTool(BaseTool):
     def execute(
         self,
         query: str,
+        memory_type: str | None = None,
     ) -> dict[str, Any]:
 
         if not query or not query.strip():
@@ -71,11 +82,26 @@ class MemoryTool(BaseTool):
                 "error": "Memory search query cannot be empty.",
             }
 
+        allowed_types = {
+            "fact", "preference", "profile", "goal", "decision",
+            "task", "knowledge", "summary", "working", "project",
+        }
+
+        wanted = (
+            memory_type.strip().lower()
+            if isinstance(memory_type, str)
+            else None
+        )
+
+        if wanted not in allowed_types:
+            wanted = None
+
         memories = self.retriever.retrieve(
             db=self.context.db,
             workspace_id=self.context.workspace_id,
             query=query.strip(),
             limit=5,
+            memory_type=wanted,
         )
 
         results = []

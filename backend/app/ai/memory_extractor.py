@@ -55,6 +55,11 @@ Rules:
    - content
    - importance
 
+6. If the message states a decision about the user's own work, use
+   memory_type "decision", a title starting with "Decision:", and the
+   content "Decision: <what>. Reason: <why, only if stated>.
+   Alternatives: <only if stated>." Never invent a reason.
+
 User Message:
 
 {text}
@@ -257,6 +262,17 @@ message is:
 - a command like "remember this" / "save this" without new content
 - a request for information the assistant should just answer, with
   no durable fact about the user to store
+
+DECISIONS: when the user states a decision about THEIR OWN work
+("we decided", "I chose", "humne tay kiya", "humne rakha"), use
+memory_type "decision", a title starting with "Decision:", and write
+the content in exactly this form:
+
+Decision: <what was decided>. Reason: <why, only if the user said it>.
+Alternatives: <only if the user mentioned them>.
+
+Leave out the Reason or Alternatives part when the user did not state
+it. Never invent a reason or an alternative.
 
 When in doubt, prefer returning an empty "memories" list. It is far
 better to remember nothing than to save something that is not
