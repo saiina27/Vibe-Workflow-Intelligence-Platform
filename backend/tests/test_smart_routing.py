@@ -82,7 +82,7 @@ def test_prompt_has_tool_choice_rules():
     prompt = build_prompt(
         memories=[],
         conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="any update on my vibe project from slack")],
         knowledge_chunks=[],
         include_memories=False,
         include_knowledge=False,

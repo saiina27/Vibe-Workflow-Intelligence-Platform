@@ -170,7 +170,7 @@ def test_plain_github_question_has_no_history_tool():
 def test_prompt_mentions_search_history():
     prompt = build_prompt(
         memories=[], conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="was there ever a commit in my repo last week")],
         knowledge_chunks=[], include_memories=False,
         include_knowledge=False,
     )
@@ -213,7 +213,7 @@ def test_decision_word_is_not_a_date():
 def test_history_prompt_rules():
     prompt = build_prompt(
         memories=[], conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="was there ever a commit in my repo last week")],
         knowledge_chunks=[], include_memories=False,
         include_knowledge=False,
     )
@@ -224,7 +224,7 @@ def test_history_prompt_rules():
 def test_prompt_has_no_angle_bracket_owner_placeholders():
     prompt = build_prompt(
         memories=[], conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="show my repo commits")],
         knowledge_chunks=[], include_memories=False,
         include_knowledge=False,
     )
@@ -247,7 +247,7 @@ def test_existence_questions_use_history_and_hide_live_list_tools():
 def test_prompt_forbids_nothing_found_from_shortened_lists():
     prompt = build_prompt(
         memories=[], conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="was there ever a commit in my repo last week")],
         knowledge_chunks=[], include_memories=False,
         include_knowledge=False,
     )

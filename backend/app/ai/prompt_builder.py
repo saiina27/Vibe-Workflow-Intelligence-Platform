@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta
 
 from app.models.conversation_summary import ConversationSummary
@@ -6,22 +7,15 @@ from app.models.workspace_memory import WorkspaceMemory
 from app.models.knowledge_chunk import KnowledgeChunk
 
 
-def build_prompt(
-    memories: list[WorkspaceMemory],
-    conversation_summary: ConversationSummary | None,
-    history: list[Message],
-    knowledge_chunks: list[KnowledgeChunk] | None = None,
-    include_memories=True,
-    include_knowledge=True,
-) -> str:
+# ============================================================
+# SYSTEM PROMPT SECTIONS
+#
+# Only the sections a question needs are sent (see
+# _system_prompt). Groq's free tier allows 8,000 tokens per
+# minute and every tool round resends the prompt.
+# ============================================================
 
-    prompt = ""
-
-    # ========================================================
-    # SYSTEM CONTEXT
-    # ========================================================
-
-    prompt += """
+_INTRO_AND_MEMORY = """
 You are Vibe AI, an AI-powered developer workspace companion.
 
 Vibe AI is designed to help developers understand, build, explore, and work
@@ -54,7 +48,9 @@ Do not use a canned memory response.
 Do not literally say "Memory has been saved successfully" — acknowledge
 naturally instead, as described above.
 
-CAPABILITY OVERVIEW RULE:
+"""
+
+_CAPABILITY_RULE = """CAPABILITY OVERVIEW RULE:
 
 Only provide the canonical Vibe AI capability overview when the user's
 actual question explicitly asks about Vibe AI itself, its capabilities,
@@ -87,7 +83,9 @@ capabilities.
 
 Use the following capability overview as the canonical product description:
 
-KNOWLEDGE / DOCUMENT RULE:
+"""
+
+_KNOWLEDGE_RULE = """KNOWLEDGE / DOCUMENT RULE:
 
 When the user refers to an uploaded document, PDF, file, notes, or information
 stored in the workspace knowledge base, automatically use the workspace
@@ -102,7 +100,9 @@ If no relevant knowledge is found, clearly say that the workspace knowledge
 search did not find enough relevant information rather than asking for a
 filename or path.
 
-GITHUB REPOSITORY RULE:
+"""
+
+_GITHUB_RULE = """GITHUB REPOSITORY RULE:
 
 When the user refers to "my repo", "my repository", or "my project"
 on GitHub without giving a full owner/repo path, do NOT guess the
@@ -137,7 +137,9 @@ a query made of "owner:" plus the login returned by get_me, a space
 and the name, to find the exact repository
 name, then use that exact name. Never guess a repository name.
 
-### What I Can Help With
+"""
+
+_CAPABILITY_TABLE = """### What I Can Help With
 
 | Capability | How It Helps |
 |---|---|
@@ -160,7 +162,9 @@ a bug, a document, or a connected developer tool.
 
 **Just tell me what you’re working on, and we’ll figure it out together.**
 
-IMPORTANT:
+"""
+
+_IMPORTANT_AND_SOURCES = """IMPORTANT:
 - Use normal Markdown formatting.
 - Keep the capability overview professional and user-facing.
 - Do not expose internal function names, tool IDs, or implementation details
@@ -188,7 +192,9 @@ You have access to three different information sources:
    - Use it when the answer may have changed since the
      uploaded documents or workspace memory were created.
 
-TOOL CHOICE RULES (GitHub, Slack, memory):
+"""
+
+_TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
 
 - If the user mentions Slack, or asks what the team said, decided,
   discussed or announced, or whether any query, message or update
@@ -229,7 +235,9 @@ TOOL CHOICE RULES (GitHub, Slack, memory):
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 
-DECISION QUESTIONS AND EXPLAIN MODE:
+"""
+
+_DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
 
 - If the user asks what was decided, or why something was built or
   chosen a certain way (for example "why did we choose X?" or "which
@@ -246,7 +254,9 @@ DECISION QUESTIONS AND EXPLAIN MODE:
 - Plain data lookups (a list of commits, a file, a search result) do
   not need this structure.
 
-RESPONSE FORMAT RULES (for tool-based answers, especially GitHub):
+"""
+
+_FORMAT_AND_TOOL_SELECTION = """RESPONSE FORMAT RULES (for tool-based answers, especially GitHub):
 
 - Start with a one-line summary of the answer.
 - Use Markdown tables for lists of commits, branches, issues, pull
@@ -306,6 +316,146 @@ IMPORTANT TOOL SELECTION RULES:
 - When workspace memory is used, stay grounded in the
   retrieved memory content.
 """
+
+_CAPABILITY_STUB = """CAPABILITY OVERVIEW RULE:
+
+Do not describe or list Vibe AI's capabilities unless the user explicitly asks what Vibe AI is or what it can do.
+
+"""
+
+_MONTH = (
+    r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|"
+    r"aug(?:ust)?|sept?(?:ember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
+)
+
+_DATE_PATTERN = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}\s*" + _MONTH + r"\b"
+    r"|\b" + _MONTH + r"\s*\d{1,2}\b"
+)
+
+_CAPABILITY_PATTERN = re.compile(
+    r"what can (?:you|vibe)|capabilit|introduce yourself|about yourself"
+    r"|who are you|what are you|what is vibe|about vibe|kya kar sakt"
+    r"|features"
+)
+
+# Words that mean the GitHub / Slack / history / chat rules are needed.
+# Kept as a superset of the intent words in tools/registry.py (a test
+# checks this), so tool exposure and prompt rules never disagree.
+TOOL_RULE_WORDS = {
+    # GitHub
+    "github", "repo", "repos", "repository", "repositories", "commit",
+    "commits", "branch", "branches", "readme", "pr", "prs", "pull",
+    "merge", "merged", "issue", "issues", "bug", "bugs", "release",
+    "releases", "tag", "tags", "changelog", "project", "projects", "code",
+    # Slack / team
+    "slack", "channel", "channels", "team", "teammates", "discussion",
+    "discussed", "message", "messages", "thread", "threads", "query",
+    "queries", "update", "updates", "decided", "decision", "decisions",
+    "announcement", "announcements",
+    # earlier chats and saved history
+    "chat", "chats", "conversation", "conversations", "earlier",
+    "previous", "yesterday", "history", "activity", "timeline",
+    "happened", "changed", "changes", "week", "weeks", "month",
+    "months", "ago", "today", "past", "ever", "mention", "mentions",
+    "mentioned", "hua", "hue", "hui", "tha", "thi", "kiya", "kiye",
+    # Hinglish time words
+    "kal", "aaj", "pichhla", "pichhli", "pichhle", "hafte", "mahine",
+    "pehle",
+}
+
+DECISION_WORDS = {
+    "decide", "decided", "decision", "decisions", "why", "explain",
+    "samjhao", "samjha", "samjhana", "kyun", "kyu", "reason", "chose",
+    "chosen", "choose", "alternative", "alternatives", "tay", "rakha",
+}
+
+
+def _intent_text(history) -> str:
+    # The latest user message; a very short follow-up (for example just
+    # "vibe") also uses the previous user message.
+    users = [
+        (m.content or "")
+        for m in history[-8:]
+        if getattr(m, "role", "") == "user"
+    ]
+
+    if not users:
+        return ""
+
+    latest = users[-1]
+
+    if len(latest.split()) <= 3 and len(users) >= 2:
+        return users[-2] + " " + latest
+
+    return latest
+
+
+def _rule_flags(history) -> tuple[bool, bool, bool]:
+    # (capability, tool_rules, decision). When unsure, send everything.
+    text = _intent_text(history)
+
+    if not text.strip():
+        return True, True, True
+
+    if any(ord(ch) > 127 and ch.isalpha() for ch in text):
+        return True, True, True
+
+    lowered = text.lower()
+    words = set(re.findall(r"[a-z0-9]+", lowered))
+
+    capability = bool(_CAPABILITY_PATTERN.search(lowered))
+    tool_rules = bool(words & TOOL_RULE_WORDS) or bool(
+        _DATE_PATTERN.search(lowered)
+    )
+    decision = bool(words & DECISION_WORDS)
+
+    return capability, tool_rules, decision
+
+
+def _system_prompt(history) -> str:
+    capability, tool_rules, decision = _rule_flags(history)
+
+    parts = [_INTRO_AND_MEMORY]
+    parts.append(_CAPABILITY_RULE if capability else _CAPABILITY_STUB)
+    parts.append(_KNOWLEDGE_RULE)
+
+    if tool_rules:
+        parts.append(_GITHUB_RULE)
+
+    if capability:
+        parts.append(_CAPABILITY_TABLE)
+
+    parts.append(_IMPORTANT_AND_SOURCES)
+
+    if tool_rules:
+        parts.append(_TOOL_CHOICE_RULES)
+
+    if decision:
+        parts.append(_DECISION_RULES)
+
+    parts.append(_FORMAT_AND_TOOL_SELECTION)
+
+    return "".join(parts)
+
+
+def build_prompt(
+    memories: list[WorkspaceMemory],
+    conversation_summary: ConversationSummary | None,
+    history: list[Message],
+    knowledge_chunks: list[KnowledgeChunk] | None = None,
+    include_memories=True,
+    include_knowledge=True,
+) -> str:
+
+    prompt = ""
+
+    # ========================================================
+    # SYSTEM CONTEXT
+    # ========================================================
+
+    prompt += _system_prompt(history)
 
 
     # ========================================================

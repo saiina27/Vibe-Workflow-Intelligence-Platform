@@ -30,6 +30,12 @@ INVALID_TOOL_ARGS_MESSAGE = (
 )
 
 
+REQUEST_TOO_LARGE_MESSAGE = (
+    "This question or chat is too long for the free AI limit right "
+    "now. Please start a new chat or ask a shorter question."
+)
+
+
 class AIGateway:
 
     def __init__(self):
@@ -174,20 +180,27 @@ class AIGateway:
         except Exception as exc:
             text = str(exc).lower()
 
+            too_large = (
+                "request too large" in text
+                or "error code: 413" in text
+            )
+
             if (
                 "not in request.tools" in text
                 or "tool call validation failed" in text
+                or too_large
             ):
                 print(
                     "🚫 Provider rejected a tool call: "
                     f"{exc}"
                 )
 
-                message = (
-                    UNEXPOSED_TOOL_MESSAGE
-                    if "not in request.tools" in text
-                    else INVALID_TOOL_ARGS_MESSAGE
-                )
+                if too_large:
+                    message = REQUEST_TOO_LARGE_MESSAGE
+                elif "not in request.tools" in text:
+                    message = UNEXPOSED_TOOL_MESSAGE
+                else:
+                    message = INVALID_TOOL_ARGS_MESSAGE
 
                 yield AIStreamEvent(
                     type="content",

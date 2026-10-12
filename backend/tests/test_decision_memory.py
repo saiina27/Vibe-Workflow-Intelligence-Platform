@@ -136,7 +136,7 @@ def full_prompt(text):
 
 
 def test_prompt_has_decision_and_explain_rules():
-    prompt = full_prompt("hi")
+    prompt = full_prompt("why did we decide this, explain it")
 
     assert "DECISION QUESTIONS AND EXPLAIN MODE" in prompt
     assert 'memory_type\n  "decision"' in prompt

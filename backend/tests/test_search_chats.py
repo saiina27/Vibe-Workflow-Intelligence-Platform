@@ -200,7 +200,7 @@ def test_github_plus_chat_words_gets_search_chats():
 def test_prompt_mentions_search_chats():
     prompt = build_prompt(
         memories=[], conversation_summary=None,
-        history=[SimpleNamespace(role="user", content="hi")],
+        history=[SimpleNamespace(role="user", content="5 Oct wali chat mein kya hua tha")],
         knowledge_chunks=[], include_memories=False,
         include_knowledge=False,
     )
