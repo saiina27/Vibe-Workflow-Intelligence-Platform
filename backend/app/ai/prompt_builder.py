@@ -253,6 +253,10 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   the user's own history must be labelled "General alternatives".
 - Plain data lookups (a list of commits, a file, a search result) do
   not need this structure.
+- If you cannot find how part of the user's own project works, say you
+  can read their code once they mention their repository (for example
+  "explain X in my repo"), and do not repeat the same search more than
+  twice.
 
 """
 
@@ -277,6 +281,8 @@ _FORMAT_AND_TOOL_SELECTION = """RESPONSE FORMAT RULES (for tool-based answers, e
   not check something (for example releases or tags), say you did not
   check it instead of guessing. If a tool returned an empty list, say
   that clearly.
+- Never add table rows, commits or other items that are not in the
+  tool result. If a list is partial, say so.
 
 IMPORTANT TOOL SELECTION RULES:
 
