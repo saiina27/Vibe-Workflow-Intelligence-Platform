@@ -33,6 +33,20 @@ GITHUB_RELEASE_TOOLS = {
 }
 GITHUB_PR_DETAIL_TOOLS = {"get_me", "list_pull_requests", "pull_request_read"}
 
+# "How does X work in my repo?" needs to find and read code, not list commits.
+GITHUB_CODE_EXPLAIN_TOOLS = {
+    "get_me",
+    "search_repositories",
+    "search_code",
+    "get_file_contents",
+}
+
+CODE_EXPLAIN_WORDS = {
+    "works", "work", "working", "implemented", "implementation",
+    "internals", "logic", "function", "functions", "class", "module",
+    "architecture", "flow",
+}
+
 # Max tools exposed to the model per request (Groq token budget).
 MAX_EXPOSED_TOOLS = 12
 
@@ -350,6 +364,9 @@ class ToolRegistry:
             "repo", "repos", "repository", "repositories", "code",
         }:
             matched.append(GITHUB_SEARCH_TOOLS)
+
+        if words & CODE_EXPLAIN_WORDS:
+            matched.append(GITHUB_CODE_EXPLAIN_TOOLS)
 
         if not matched:
             matched.append(GITHUB_DEFAULT_READ_TOOLS)

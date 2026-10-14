@@ -257,6 +257,14 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   can read their code once they mention their repository (for example
   "explain X in my repo"), and do not repeat the same search more than
   twice.
+- IMPLEMENTATION QUESTIONS: when the user asks how something in their
+  own project works (for example "how does the provider cooldown
+  work"), describe the mechanism only if you read it in their code or
+  in a tool result. A saved decision or note (for example a daily
+  request limit) tells why something exists, not how it is
+  implemented. If you have not read the code, say so first, then give
+  only what the notes say, and label any general explanation as
+  "General idea, not from your code".
 
 """
 
