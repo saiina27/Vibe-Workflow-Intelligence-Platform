@@ -42,6 +42,7 @@ from app.services.memory_decision_service import (
     MemoryDecisionService,
 )
 from app.services.summary_service import summary_service
+from app.services.dev_events_service import tracked_repo_names
 from app.schemas.workspace_memory import MemoryCreate
 from app.schemas.ai import AIStreamEvent
 
@@ -969,6 +970,7 @@ async def ask_ai(
             knowledge_chunks=knowledge_chunks,
             include_memories=False,
             include_knowledge=False,
+            tracked_repos=tracked_repo_names(db, chat.workspace_id),
         )
 
         logger.info(
@@ -1571,6 +1573,7 @@ def stream_ai_response(
         knowledge_chunks=knowledge_chunks,
         include_memories=False,
         include_knowledge=False,
+        tracked_repos=tracked_repo_names(db, chat.workspace_id),
     )
 
     logger.info(

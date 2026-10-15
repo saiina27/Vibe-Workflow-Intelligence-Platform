@@ -284,6 +284,14 @@ class ToolRegistry:
         return latest
 
     @staticmethod
+    def _has_tracked_repos(prompt: str) -> bool:
+        """True when the system part of the prompt lists tracked repos."""
+
+        head = prompt.rsplit("CURRENT CONVERSATION", 1)[0]
+
+        return "TRACKED REPOSITORIES:" in head
+
+    @staticmethod
     def _is_github_intent(prompt: str) -> bool:
         """
         Decide GitHub intent from the user's latest message only
@@ -322,7 +330,13 @@ class ToolRegistry:
             words & {"project", "projects"} and words & owner
         )
 
-        return bool(words & activity and about_project)
+        if words & activity and about_project:
+            return True
+
+        return (
+            ToolRegistry._has_tracked_repos(prompt)
+            and bool(words & CODE_EXPLAIN_WORDS)
+        )
 
     @staticmethod
     def _github_allowed_tools(prompt: str) -> set[str]:

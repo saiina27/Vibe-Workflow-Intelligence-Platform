@@ -425,3 +425,13 @@ def search_events(
         .limit(max(1, min(limit, 50)))
         .all()
     )
+
+
+def tracked_repo_names(db: Session, workspace_id: int) -> list[str]:
+    """Names of the workspace's tracked repositories. Never raises."""
+
+    try:
+        return [r.full_name for r in list_tracked_repos(db, workspace_id)]
+    except Exception:
+        db.rollback()
+        return []

@@ -1,6 +1,8 @@
 import re
 from datetime import datetime, timedelta
 
+from app.ai.tools.registry import CODE_EXPLAIN_WORDS
+
 from app.models.conversation_summary import ConversationSummary
 from app.models.message import Message
 from app.models.workspace_memory import WorkspaceMemory
@@ -341,6 +343,26 @@ IMPORTANT TOOL SELECTION RULES:
   retrieved memory content.
 """
 
+def _tracked_repos_section(tracked_repos) -> str:
+    names = [r for r in (tracked_repos or []) if r][:5]
+
+    if not names:
+        return ""
+
+    return (
+        "TRACKED REPOSITORIES: " + ", ".join(names) + "\n"
+        "These are the user's own repositories. For a question about "
+        "their project, if only one repository is listed, use it "
+        "directly (owner and name as given) and do not call get_me or "
+        "search_repositories first. If several are listed, use the one "
+        "the user names and ask only if it is unclear. For a question "
+        "about how something in their project works, search and read "
+        "their code (search_code, get_file_contents). If the question "
+        "is a general concept that is not about their project, answer "
+        "it directly without tools.\n\n"
+    )
+
+
 _CAPABILITY_STUB = """CAPABILITY OVERVIEW RULE:
 
 Do not describe or list Vibe AI's capabilities unless the user explicitly asks what Vibe AI is or what it can do.
@@ -416,7 +438,7 @@ def _intent_text(history) -> str:
     return latest
 
 
-def _rule_flags(history) -> tuple[bool, bool, bool]:
+def _rule_flags(history, tracked=False) -> tuple[bool, bool, bool]:
     # (capability, tool_rules, decision). When unsure, send everything.
     text = _intent_text(history)
 
@@ -435,11 +457,17 @@ def _rule_flags(history) -> tuple[bool, bool, bool]:
     )
     decision = bool(words & DECISION_WORDS)
 
+    # With a tracked repository, "how does X work" is a code question.
+    if tracked and words & CODE_EXPLAIN_WORDS:
+        tool_rules = True
+
     return capability, tool_rules, decision
 
 
-def _system_prompt(history) -> str:
-    capability, tool_rules, decision = _rule_flags(history)
+def _system_prompt(history, tracked_repos=None) -> str:
+    capability, tool_rules, decision = _rule_flags(
+        history, bool(tracked_repos)
+    )
 
     parts = [_INTRO_AND_MEMORY]
     parts.append(_CAPABILITY_RULE if capability else _CAPABILITY_STUB)
@@ -447,6 +475,7 @@ def _system_prompt(history) -> str:
 
     if tool_rules:
         parts.append(_GITHUB_RULE)
+        parts.append(_tracked_repos_section(tracked_repos))
 
     if capability:
         parts.append(_CAPABILITY_TABLE)
@@ -471,6 +500,7 @@ def build_prompt(
     knowledge_chunks: list[KnowledgeChunk] | None = None,
     include_memories=True,
     include_knowledge=True,
+    tracked_repos: list[str] | None = None,
 ) -> str:
 
     prompt = ""
@@ -479,7 +509,7 @@ def build_prompt(
     # SYSTEM CONTEXT
     # ========================================================
 
-    prompt += _system_prompt(history)
+    prompt += _system_prompt(history, tracked_repos)
 
 
     # ========================================================
