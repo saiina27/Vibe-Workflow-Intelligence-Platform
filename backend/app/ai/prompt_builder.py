@@ -232,6 +232,13 @@ _TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
   Never answer "nothing found" or "no commit mentions X" from a
   shortened live list: if you only saw part of a list, say so and use
   the saved-history search instead.
+- An empty search_code result does not mean the code is missing: the
+  code index can lag and may not match identifiers such as
+  _in_cooldown. Never conclude that something is absent from it. If no
+  file was named, list the likely directory with get_file_contents (a
+  directory path returns its files), then read the most relevant file.
+  Read at most three files. If you still cannot find it, say what you
+  tried and ask for the file path.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 
@@ -251,6 +258,9 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   answer as: What it is, Why it is this way, How it works,
   Alternatives. Keep each part short. Alternatives that are not from
   the user's own history must be labelled "General alternatives".
+  In the "How it works" part, write only what you read in the user's
+  code or in a tool result. If you did not read their code, write
+  "Not checked: I have not read your code" there.
 - Plain data lookups (a list of commits, a file, a search result) do
   not need this structure.
 - If you cannot find how part of the user's own project works, say you
