@@ -12,6 +12,7 @@ from app.ai.tools.registry import ToolRegistry
 from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db
 from app.mcp.runtime import mcp_integration_manager, mcp_permission_service
+from app.services import code_index_service as cidx
 from app.services import dev_events_service as svc
 from app.services.external_integration_service import get_user_integration
 from app.services.workspace_service import require_workspace_access
@@ -130,8 +131,16 @@ def remove_repo(
 ):
     require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
 
+    name = next(
+        (r.full_name for r in svc.list_tracked_repos(db, workspace_id) if r.id == repo_id),
+        None,
+    )
+
     if not svc.delete_tracked_repo(db, workspace_id, repo_id):
         raise HTTPException(status_code=404, detail="Repository not found")
+
+    if name:
+        cidx.delete_repo_index(db, workspace_id, name)
 
     return {"message": "Repository removed"}
 
@@ -229,3 +238,49 @@ def get_dev_events(
     )
 
     return [_event_json(r) for r in rows]
+
+
+@router.get("/code-index/status")
+def code_index_status(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    return [
+        cidx.index_status(db, workspace_id, r.full_name)
+        for r in svc.list_tracked_repos(db, workspace_id)
+    ]
+
+
+@router.post("/code-index/run")
+async def code_index_run(
+    workspace_id: int,
+    repo: str,
+    scan: bool = False,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Index one tracked repository in a 40 second batch. Press again until done."""
+
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    tracked = {r.full_name for r in svc.list_tracked_repos(db, workspace_id)}
+
+    if repo not in tracked:
+        raise HTTPException(status_code=404, detail="Repository is not tracked.")
+
+    try:
+        async with github_caller(db, workspace_id, current_user.id) as call:
+
+            def work():
+                return cidx.run_batch(db, workspace_id, repo, call, scan=scan)
+
+            return await run_in_threadpool(work)
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=502, detail=str(exc)[:200])

@@ -357,7 +357,7 @@ def _tracked_repos_section(tracked_repos) -> str:
         "search_repositories first. If several are listed, use the one "
         "the user names and ask only if it is unclear. For a question "
         "about how something in their project works, search and read "
-        "their code (search_code, get_file_contents). If the question "
+        "their code: first call find_in_code with keywords to find the file and line, then read that file with get_file_contents (search_code is unreliable). If the question "
         "is a general concept that is not about their project, answer "
         "it directly without tools.\n\n"
     )

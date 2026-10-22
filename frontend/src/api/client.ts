@@ -754,3 +754,42 @@ export async function getDevEvents(
     `/workspaces/${workspaceId}/dev-events?${params.toString()}`,
   )
 }
+
+
+/* =========================
+CODE INDEX
+========================= */
+
+export interface CodeIndexStatus {
+  repo: string
+  files: number
+  indexed: number
+  pending: number
+  symbols: number
+  last_indexed_at: string | null
+}
+
+export interface CodeIndexRun extends CodeIndexStatus {
+  processed: number
+  errors: number
+  done: boolean
+}
+
+export async function getCodeIndexStatus(
+  workspaceId: number,
+): Promise<CodeIndexStatus[]> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/code-index/status`,
+  )
+}
+
+export async function runCodeIndex(
+  workspaceId: number,
+  repo: string,
+  scan: boolean,
+): Promise<CodeIndexRun> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/code-index/run?repo=${encodeURIComponent(repo)}&scan=${scan}`,
+    { method: 'POST' },
+  )
+}

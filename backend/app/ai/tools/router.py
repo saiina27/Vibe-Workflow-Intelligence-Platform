@@ -1,6 +1,7 @@
 from app.ai.tools.context import ToolContext
 from app.ai.tools.knowledge_tool import KnowledgeTool
 from app.ai.tools.chat_search_tool import ChatSearchTool
+from app.ai.tools.code_search_tool import CodeSearchTool
 from app.ai.tools.history_search_tool import HistorySearchTool
 from app.ai.tools.memory_tool import MemoryTool
 from app.ai.tools.permissions import (
@@ -85,6 +86,16 @@ class ToolRouter:
 
             registry.register(
                 HistorySearchTool(context)
+            )
+
+        # ====================================================
+        # CODE INDEX (where is X implemented)
+        # ====================================================
+
+        if "find_in_code" in allowed_tools:
+
+            registry.register(
+                CodeSearchTool(context)
             )
 
         # ====================================================

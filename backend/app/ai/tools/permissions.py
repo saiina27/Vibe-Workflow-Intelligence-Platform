@@ -42,6 +42,7 @@ class ToolPermissionService:
         "search_web",
         "search_chats",
         "search_history",
+        "find_in_code",
         "github",
 
         # ====================================================

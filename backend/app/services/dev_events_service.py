@@ -14,6 +14,7 @@ ALLOWED_SYNC_TOOLS = {
     "list_commits",
     "list_pull_requests",
     "search_repositories",
+    "get_file_contents",
 }
 
 COMMITS_LIMIT = 50

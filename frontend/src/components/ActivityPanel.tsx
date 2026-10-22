@@ -6,7 +6,10 @@ import {
   getGithubRepos,
   getTrackedRepos,
   removeTrackedRepo,
+  getCodeIndexStatus,
+  runCodeIndex,
   syncDevEvents,
+  type CodeIndexStatus,
   type DevEvent,
   type TrackedRepo,
 } from '../api/client'
@@ -59,6 +62,8 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
   const [loadingEvents, setLoadingEvents] = useState(false)
   const [loadingGithub, setLoadingGithub] = useState(false)
   const [syncing, setSyncing] = useState(false)
+  const [indexing, setIndexing] = useState(false)
+  const [indexStatus, setIndexStatus] = useState<CodeIndexStatus[]>([])
 
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -88,9 +93,21 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
     }
   }, [workspaceId, repoFilter, typeFilter, days])
 
+  const loadIndexStatus = useCallback(async () => {
+    try {
+      setIndexStatus(await getCodeIndexStatus(workspaceId))
+    } catch {
+      setIndexStatus([])
+    }
+  }, [workspaceId])
+
   useEffect(() => {
     loadRepos()
   }, [loadRepos])
+
+  useEffect(() => {
+    loadIndexStatus()
+  }, [loadIndexStatus, repos.length])
 
   useEffect(() => {
     loadEvents()
@@ -149,6 +166,38 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
       setError(errorText(e, 'Failed to load GitHub repositories'))
     } finally {
       setLoadingGithub(false)
+    }
+  }
+
+  async function handleIndex(repo: string) {
+    if (indexing) return
+
+    try {
+      setIndexing(true)
+      setError('')
+      setMessage('')
+
+      let scan = true
+
+      for (let round = 0; round < 40; round++) {
+        const result = await runCodeIndex(workspaceId, repo, scan)
+
+        setMessage(
+          `${repo}: ${result.indexed}/${result.files} files indexed, ` +
+            `${result.symbols} symbols`,
+        )
+
+        if (result.done) break
+        if (!scan && result.processed === 0) break
+
+        scan = false
+      }
+
+      await loadIndexStatus()
+    } catch (e) {
+      setError(errorText(e, 'Indexing failed'))
+    } finally {
+      setIndexing(false)
     }
   }
 
@@ -302,6 +351,39 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
               Add
             </button>
           </div>
+        </section>
+
+        <section className="activity-section">
+          <h4>Code index</h4>
+          <p className="activity-muted">
+            Lets Vibe find where things are implemented in your code.
+            It stores only function and class names, not your code.
+          </p>
+
+          {indexStatus.length === 0 && (
+            <p className="activity-muted">Add a repository first.</p>
+          )}
+
+          {indexStatus.map((item) => (
+            <div key={item.repo} className="activity-row">
+              <span className="activity-muted">
+                {item.repo}: {item.indexed}/{item.files} files,{' '}
+                {item.symbols} symbols
+              </span>
+              <button
+                type="button"
+                className="activity-button secondary"
+                onClick={() => handleIndex(item.repo)}
+                disabled={indexing}
+              >
+                {indexing
+                  ? 'Indexing…'
+                  : item.files
+                    ? 'Update index'
+                    : 'Index code'}
+              </button>
+            </div>
+          ))}
         </section>
 
         <section className="activity-section">

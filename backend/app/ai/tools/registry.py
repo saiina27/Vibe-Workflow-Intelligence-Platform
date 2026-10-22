@@ -39,6 +39,7 @@ GITHUB_CODE_EXPLAIN_TOOLS = {
     "search_repositories",
     "search_code",
     "get_file_contents",
+    "find_in_code",
 }
 
 CODE_EXPLAIN_WORDS = {

@@ -13,3 +13,4 @@ from app.models.external_integration import ExternalIntegration
 from app.models.oauth_state import OAuthState
 from app.models.tracked_repo import TrackedRepo
 from app.models.dev_event import DevEvent
+from app.models.code_file import CodeFile, CodeSymbol
