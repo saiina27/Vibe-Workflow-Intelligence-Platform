@@ -766,10 +766,12 @@ export interface CodeIndexStatus {
   indexed: number
   pending: number
   symbols: number
+  dirs_left: number
   last_indexed_at: string | null
 }
 
 export interface CodeIndexRun extends CodeIndexStatus {
+  scanned: number
   processed: number
   errors: number
   done: boolean

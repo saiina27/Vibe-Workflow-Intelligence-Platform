@@ -204,21 +204,73 @@ def test_file_text_raises_on_tool_error():
 
 # ---------------- scan and index ----------------
 
+def tree_with_noise():
+    tree = make_tree()
+    tree[""] = tree[""] + [entry("dir", "frontend"), entry("dir", "docs")]
+    return tree
+
+
+def run_until_done(db, gh, rounds=12, **kwargs):
+    out = None
+
+    for _ in range(rounds):
+        out = cidx.run_batch(db, 1, REPO, gh, budget_seconds=30, **kwargs)
+
+        if out["done"]:
+            break
+
+    return out
+
+
 def test_first_run_scans_and_indexes_only_wanted_files(db):
-    gh = FakeGitHub()
+    gh = FakeGitHub(tree=tree_with_noise())
     out = cidx.run_batch(db, 1, REPO, gh, budget_seconds=30)
 
     assert out["files"] == 2
     assert out["indexed"] == 2
-    assert out["pending"] == 0
+    assert out["pending"] == 0 and out["dirs_left"] == 0
     assert out["done"] is True
     assert out["symbols"] > 0
 
-    paths = {f.path for f in db.query(CodeFile).all()}
+    paths = {
+        f.path for f in db.query(CodeFile).filter(CodeFile.size >= 0).all()
+    }
     assert paths == {"backend/main.py", "backend/app/router.py"}
 
-    assert "/" in gh.calls and "backend" in gh.calls and "backend/app" in gh.calls
-    assert not any("node_modules" in c or ".github" in c or "__pycache__" in c for c in gh.calls)
+    assert {"/", "backend", "backend/app"} <= set(gh.calls)
+
+    for skipped in ("node_modules", ".github", "__pycache__", "frontend", "docs"):
+        assert not any(skipped in c for c in gh.calls)
+
+
+def test_scan_is_resumable_and_keeps_its_progress(db):
+    gh = FakeGitHub()
+    first = cidx.run_batch(db, 1, REPO, gh, budget_seconds=30, max_calls=2)
+
+    assert first["scanned"] == 2
+    assert first["dirs_left"] == 1
+    assert first["done"] is False and first["processed"] == 0
+
+    saved_dirs = db.query(CodeFile).filter(CodeFile.size == cidx.DIR_SIZE).count()
+    assert saved_dirs == 3  # root, backend and backend/app are remembered
+
+    out = run_until_done(db, gh, max_calls=2)
+
+    assert out["done"] is True
+    assert out["files"] == 2 and out["indexed"] == 2
+
+    # backend/app was listed once only: nothing was re-scanned from zero
+    assert gh.calls.count("backend") == 1
+    assert gh.calls.count("backend/app") == 1
+
+
+def test_status_counts_files_not_folders(db):
+    out = run_until_done(db, FakeGitHub())
+
+    assert out["files"] == 2
+    assert cidx.index_status(db, 1, REPO)["files"] == 2
+    assert cidx.workspace_index_counts(db, 1)["files"] == 2
+    assert db.query(CodeFile).filter(CodeFile.size == cidx.DIR_SIZE).count() == 3
 
 
 def test_second_run_fetches_nothing_and_changed_files_are_refetched(db):
@@ -226,10 +278,10 @@ def test_second_run_fetches_nothing_and_changed_files_are_refetched(db):
 
     again = FakeGitHub()
     out = cidx.run_batch(db, 1, REPO, again, scan=False, budget_seconds=30)
-    assert again.fetched_files() == [] and out["done"] is True
+    assert again.calls == [] and out["done"] is True
 
     changed = FakeGitHub(tree=make_tree(router_sha="r2"))
-    out = cidx.run_batch(db, 1, REPO, changed, scan=True, budget_seconds=30)
+    out = run_until_done(db, changed, scan=True)
 
     assert changed.fetched_files() == ["backend/app/router.py"]
     assert out["done"] is True
@@ -240,15 +292,28 @@ def test_deleted_files_are_removed_with_their_symbols(db):
 
     tree = make_tree()
     tree["backend"] = [entry("dir", "backend/app")]
-    cidx.run_batch(db, 1, REPO, FakeGitHub(tree=tree), scan=True, budget_seconds=30)
+    run_until_done(db, FakeGitHub(tree=tree), scan=True)
 
-    assert {f.path for f in db.query(CodeFile).all()} == {"backend/app/router.py"}
+    left = {f.path for f in db.query(CodeFile).filter(CodeFile.size >= 0).all()}
+    assert left == {"backend/app/router.py"}
     assert all(s.path == "backend/app/router.py" for s in db.query(CodeSymbol).all())
+
+
+def test_removed_folder_disappears_with_everything_under_it(db):
+    cidx.run_batch(db, 1, REPO, FakeGitHub(), budget_seconds=30)
+
+    tree = make_tree()
+    tree["backend"] = [entry("file", "backend/main.py", "m1", 200)]
+    run_until_done(db, FakeGitHub(tree=tree), scan=True)
+
+    paths = {f.path for f in db.query(CodeFile).all()}
+    assert not any(p.startswith("backend/app") for p in paths)
+    assert all(s.path == "backend/main.py" for s in db.query(CodeSymbol).all())
 
 
 def test_root_listing_falls_back_to_empty_path(db):
     gh = FakeGitHub(root_needs_empty_path=True)
-    out = cidx.run_batch(db, 1, REPO, gh, budget_seconds=30)
+    out = run_until_done(db, gh)
 
     assert out["files"] == 2
     assert gh.calls[:2] == ["/", ""]
@@ -265,11 +330,13 @@ def test_failing_file_is_given_up_after_three_attempts(db):
     assert failed.attempts == 3 and failed.error
 
 
-def test_zero_budget_processes_nothing_and_is_not_done(db):
-    cidx.scan_repo(db, 1, REPO, FakeGitHub(), deadline=1e12)
-    out = cidx.run_batch(db, 1, REPO, FakeGitHub(), scan=False, budget_seconds=0)
+def test_zero_budget_does_no_github_calls_and_is_not_done(db):
+    gh = FakeGitHub()
+    out = cidx.run_batch(db, 1, REPO, gh, budget_seconds=0)
 
-    assert out["processed"] == 0 and out["done"] is False
+    assert gh.calls == []
+    assert out["scanned"] == 0 and out["processed"] == 0
+    assert out["done"] is False and out["dirs_left"] == 1
 
 
 def test_sync_allowlist_has_file_reads_but_no_write_tools():

@@ -184,11 +184,14 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
 
         setMessage(
           `${repo}: ${result.indexed}/${result.files} files indexed, ` +
-            `${result.symbols} symbols`,
+            `${result.symbols} symbols` +
+            (result.dirs_left
+              ? `, scanning folders (${result.dirs_left} left)`
+              : ''),
         )
 
         if (result.done) break
-        if (!scan && result.processed === 0) break
+        if (result.processed === 0 && result.scanned === 0) break
 
         scan = false
       }

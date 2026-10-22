@@ -13,15 +13,21 @@ from app.services import dev_events_service as dev
 
 MAX_ATTEMPTS = 3
 MAX_FILES = 400
-MAX_DIRS = 80
+MAX_DIRS = 120
 MAX_FILE_BYTES = 150_000
 MAX_SYMBOLS_PER_FILE = 300
 BATCH_SECONDS = 40
 SAFETY_MARGIN = 3
 
+# A folder is stored as a CodeFile row with this size. indexed_sha is
+# NULL while the folder still has to be listed and DIR_DONE afterwards.
+DIR_SIZE = -1
+DIR_DONE = "dir"
+
 SKIP_DIRS = {
     "node_modules", "venv", ".venv", "__pycache__", "dist", "build",
-    "site-packages", "uploads", "migrations",
+    "site-packages", "uploads", "migrations", "frontend", "docs",
+    "public", "assets", "static",
 }
 
 HTTP_METHODS = {"get", "post", "put", "delete", "patch"}
@@ -231,12 +237,37 @@ def _wanted_file(path: str, size: Any) -> bool:
     return path.endswith(".py") and 0 < size <= MAX_FILE_BYTES
 
 
+def _parent(path: str) -> str:
+    return path.rsplit("/", 1)[0] if "/" in path else ""
+
+
 # ------------------------------------------------------------
-# Scan, index, status
+# Work budget (time, and optionally a number of GitHub calls)
+# ------------------------------------------------------------
+
+class _Budget:
+    def __init__(self, seconds: float, calls: int | None = None):
+        self.deadline = time.monotonic() + seconds
+        self.calls = calls
+
+    def ok(self) -> bool:
+        if time.monotonic() >= self.deadline - SAFETY_MARGIN:
+            return False
+
+        return self.calls is None or self.calls > 0
+
+    def spend(self) -> None:
+        if self.calls is not None:
+            self.calls -= 1
+
+
+# ------------------------------------------------------------
+# Row filters
 # ------------------------------------------------------------
 
 def _pending_filter():
     return and_(
+        CodeFile.size >= 0,
         CodeFile.attempts < MAX_ATTEMPTS,
         or_(
             CodeFile.indexed_sha.is_(None),
@@ -245,86 +276,216 @@ def _pending_filter():
     )
 
 
-def scan_repo(
-    db: Session,
-    workspace_id: int,
-    repo: str,
-    call: Callable,
-    deadline: float,
+def _pending_dir_filter():
+    return and_(
+        CodeFile.size == DIR_SIZE,
+        CodeFile.attempts < MAX_ATTEMPTS,
+        CodeFile.indexed_sha.is_(None),
+    )
+
+
+def _scope(workspace_id: int, repo: str):
+    return (CodeFile.workspace_id == workspace_id, CodeFile.repo == repo)
+
+
+def _prefix_like(path: str) -> str:
+    escaped = path.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    return f"{escaped}/%"
+
+
+# ------------------------------------------------------------
+# Scan (resumable) and index
+# ------------------------------------------------------------
+
+def restart_scan(db: Session, workspace_id: int, repo: str) -> None:
+    """Mark every saved folder as not listed yet and make sure the root exists."""
+
+    db.query(CodeFile).filter(
+        *_scope(workspace_id, repo), CodeFile.size == DIR_SIZE
+    ).update(
+        {"indexed_sha": None, "attempts": 0, "error": None},
+        synchronize_session=False,
+    )
+
+    root = (
+        db.query(CodeFile.id)
+        .filter(*_scope(workspace_id, repo), CodeFile.path == "", CodeFile.size == DIR_SIZE)
+        .first()
+    )
+
+    if root is None:
+        db.add(
+            CodeFile(
+                workspace_id=workspace_id, repo=repo, path="",
+                sha="", size=DIR_SIZE, attempts=0,
+            )
+        )
+
+    db.commit()
+
+
+def _delete_subtree(db: Session, workspace_id: int, repo: str, path: str) -> None:
+    ids = [
+        r[0]
+        for r in db.query(CodeFile.id)
+        .filter(
+            *_scope(workspace_id, repo),
+            or_(CodeFile.path == path, CodeFile.path.like(_prefix_like(path), escape="\\")),
+        )
+        .all()
+    ]
+
+    if not ids:
+        return
+
+    db.query(CodeSymbol).filter(CodeSymbol.file_id.in_(ids)).delete(
+        synchronize_session=False
+    )
+    db.query(CodeFile).filter(CodeFile.id.in_(ids)).delete(
+        synchronize_session=False
+    )
+
+
+def _apply_directory(
+    db: Session, workspace_id: int, repo: str, path: str, entries: list[dict]
+) -> None:
+    """Save what one folder contains: files to index and folders to visit."""
+
+    existing = {
+        r.path: r
+        for r in db.query(CodeFile).filter(*_scope(workspace_id, repo)).all()
+        if r.path and _parent(r.path) == path
+    }
+
+    dir_count = (
+        db.query(func.count(CodeFile.id))
+        .filter(*_scope(workspace_id, repo), CodeFile.size == DIR_SIZE)
+        .scalar()
+        or 0
+    )
+
+    seen: set[str] = set()
+
+    for entry in entries:
+        entry_path = entry.get("path")
+        kind = entry.get("type")
+
+        if not isinstance(entry_path, str) or _parent(entry_path) != path:
+            continue
+
+        if kind == "dir":
+            if _skip_dir(entry_path):
+                continue
+
+            seen.add(entry_path)
+
+            if entry_path not in existing:
+                dir_count += 1
+
+                if dir_count > MAX_DIRS:
+                    raise RuntimeError(
+                        "Repository has too many folders for the code index."
+                    )
+
+                db.add(
+                    CodeFile(
+                        workspace_id=workspace_id, repo=repo, path=entry_path,
+                        sha="", size=DIR_SIZE, attempts=0,
+                    )
+                )
+
+        elif kind == "file" and _wanted_file(entry_path, entry.get("size")):
+            seen.add(entry_path)
+            sha = str(entry.get("sha") or "")
+            size = int(entry.get("size") or 0)
+            row = existing.get(entry_path)
+
+            if row is None:
+                db.add(
+                    CodeFile(
+                        workspace_id=workspace_id, repo=repo, path=entry_path,
+                        sha=sha, size=size, attempts=0,
+                    )
+                )
+            elif row.size == DIR_SIZE:
+                row.sha = sha
+                row.size = size
+                row.indexed_sha = None
+                row.attempts = 0
+            elif row.sha != sha or row.size != size:
+                row.sha = sha
+                row.size = size
+                row.attempts = 0
+
+    for child_path in list(existing):
+        if child_path not in seen:
+            _delete_subtree(db, workspace_id, repo, child_path)
+
+    db.commit()
+
+    files = (
+        db.query(func.count(CodeFile.id))
+        .filter(*_scope(workspace_id, repo), CodeFile.size >= 0)
+        .scalar()
+        or 0
+    )
+
+    if files > MAX_FILES:
+        raise RuntimeError("Repository has too many files for the code index.")
+
+
+def scan_some(
+    db: Session, workspace_id: int, repo: str, call: Callable, budget: _Budget
 ) -> int:
-    """Walk the repository folders and save the list of .py files."""
+    """List as many pending folders as the budget allows. Progress is saved."""
 
     owner, name = repo.split("/", 1)
+    scanned = 0
 
-    stack = [""]
-    found: dict[str, tuple[str, int]] = {}
-    dirs = 0
+    while budget.ok():
+        row = (
+            db.query(CodeFile)
+            .filter(*_scope(workspace_id, repo), _pending_dir_filter())
+            .order_by(CodeFile.path)
+            .first()
+        )
 
-    while stack:
-        if time.monotonic() > deadline:
-            raise RuntimeError("Scanning took too long. Press Index code again.")
+        if row is None:
+            break
 
-        path = stack.pop()
-        dirs += 1
+        row_id, path = row.id, row.path
+        budget.spend()
 
-        if dirs > MAX_DIRS:
-            raise RuntimeError("Repository has too many folders for the code index.")
+        try:
+            entries = list_dir(call, owner, name, path)
+        except Exception as exc:
+            db.rollback()
+            failed = db.get(CodeFile, row_id)
 
-        entries = list_dir(call, owner, name, path)
+            if failed is not None:
+                failed.attempts = (failed.attempts or 0) + 1
+                failed.error = str(exc)[:200]
+                db.commit()
+
+            continue
 
         if path == "" and not entries:
             raise RuntimeError("Could not list the repository root.")
 
-        for entry in entries:
-            entry_path = entry.get("path")
-            kind = entry.get("type")
+        _apply_directory(db, workspace_id, repo, path, entries)
 
-            if not isinstance(entry_path, str):
-                continue
+        done = db.get(CodeFile, row_id)
 
-            if kind == "dir":
-                if not _skip_dir(entry_path):
-                    stack.append(entry_path)
+        if done is not None:
+            done.indexed_sha = DIR_DONE
+            done.attempts = 0
+            done.error = None
+            db.commit()
 
-            elif kind == "file" and _wanted_file(entry_path, entry.get("size")):
-                found[entry_path] = (
-                    str(entry.get("sha") or ""),
-                    int(entry.get("size") or 0),
-                )
+        scanned += 1
 
-        if len(found) > MAX_FILES:
-            raise RuntimeError("Repository has too many files for the code index.")
-
-    existing = {
-        f.path: f
-        for f in db.query(CodeFile)
-        .filter(CodeFile.workspace_id == workspace_id, CodeFile.repo == repo)
-        .all()
-    }
-
-    for path, (sha, size) in found.items():
-        row = existing.get(path)
-
-        if row is None:
-            db.add(
-                CodeFile(
-                    workspace_id=workspace_id, repo=repo, path=path,
-                    sha=sha, size=size, attempts=0,
-                )
-            )
-        elif row.sha != sha or row.size != size:
-            row.sha = sha
-            row.size = size
-            row.attempts = 0
-
-    for path, row in existing.items():
-        if path not in found:
-            db.query(CodeSymbol).filter(CodeSymbol.file_id == row.id).delete()
-            db.delete(row)
-
-    db.commit()
-
-    return len(found)
+    return scanned
 
 
 def index_file(db: Session, code_file: CodeFile, text: str) -> int:
@@ -354,18 +515,27 @@ def index_file(db: Session, code_file: CodeFile, text: str) -> int:
 
 
 def index_status(db: Session, workspace_id: int, repo: str) -> dict:
-    base = (CodeFile.workspace_id == workspace_id, CodeFile.repo == repo)
+    scope = _scope(workspace_id, repo)
 
-    files = db.query(func.count(CodeFile.id)).filter(*base).scalar() or 0
+    files = (
+        db.query(func.count(CodeFile.id))
+        .filter(*scope, CodeFile.size >= 0)
+        .scalar()
+        or 0
+    )
     indexed = (
         db.query(func.count(CodeFile.id))
-        .filter(*base, CodeFile.indexed_sha == CodeFile.sha)
+        .filter(*scope, CodeFile.size >= 0, CodeFile.indexed_sha == CodeFile.sha)
         .scalar()
         or 0
     )
     pending = (
+        db.query(func.count(CodeFile.id)).filter(*scope, _pending_filter()).scalar()
+        or 0
+    )
+    dirs_left = (
         db.query(func.count(CodeFile.id))
-        .filter(*base, _pending_filter())
+        .filter(*scope, _pending_dir_filter())
         .scalar()
         or 0
     )
@@ -375,13 +545,18 @@ def index_status(db: Session, workspace_id: int, repo: str) -> dict:
         .scalar()
         or 0
     )
-    last = db.query(func.max(CodeFile.indexed_at)).filter(*base).scalar()
+    last = (
+        db.query(func.max(CodeFile.indexed_at))
+        .filter(*scope, CodeFile.size >= 0)
+        .scalar()
+    )
 
     return {
         "repo": repo,
         "files": files,
         "indexed": indexed,
         "pending": pending,
+        "dirs_left": dirs_left,
         "symbols": symbols,
         "last_indexed_at": last,
     }
@@ -394,78 +569,94 @@ def run_batch(
     call: Callable,
     scan: bool = False,
     budget_seconds: float = BATCH_SECONDS,
+    max_calls: int | None = None,
 ) -> dict:
-    """Scan (when asked or when nothing is saved yet), then index pending files."""
+    """
+    One batch of work: list pending folders, then index pending files.
+    Press again until `done`. Progress is saved after every step.
+    """
 
     if not dev.is_valid_repo(repo):
         raise ValueError("Repository must look like owner/repo.")
 
-    deadline = time.monotonic() + budget_seconds
+    budget = _Budget(budget_seconds, max_calls)
     owner, name = repo.split("/", 1)
 
-    has_files = (
+    has_rows = (
         db.query(func.count(CodeFile.id))
-        .filter(CodeFile.workspace_id == workspace_id, CodeFile.repo == repo)
+        .filter(*_scope(workspace_id, repo))
         .scalar()
         or 0
     )
 
-    if scan or not has_files:
-        scan_repo(db, workspace_id, repo, call, deadline)
+    if scan or not has_rows:
+        restart_scan(db, workspace_id, repo)
 
-    pending_rows = (
-        db.query(CodeFile)
-        .filter(
-            CodeFile.workspace_id == workspace_id,
-            CodeFile.repo == repo,
-            _pending_filter(),
-        )
-        .order_by(CodeFile.path)
-        .limit(300)
-        .all()
+    scanned = scan_some(db, workspace_id, repo, call, budget)
+
+    dirs_left = (
+        db.query(func.count(CodeFile.id))
+        .filter(*_scope(workspace_id, repo), _pending_dir_filter())
+        .scalar()
+        or 0
     )
 
     processed = 0
     errors = 0
 
-    for row in pending_rows:
-        if time.monotonic() >= deadline - SAFETY_MARGIN:
-            break
+    if dirs_left == 0:
+        pending_rows = (
+            db.query(CodeFile)
+            .filter(*_scope(workspace_id, repo), _pending_filter())
+            .order_by(CodeFile.path)
+            .limit(300)
+            .all()
+        )
 
-        row_id, path = row.id, row.path
+        for row in pending_rows:
+            if not budget.ok():
+                break
 
-        try:
-            text = file_text(
-                call(
-                    "get_file_contents",
-                    {"owner": owner, "repo": name, "path": path},
+            row_id, path = row.id, row.path
+            budget.spend()
+
+            try:
+                text = file_text(
+                    call(
+                        "get_file_contents",
+                        {"owner": owner, "repo": name, "path": path},
+                    )
                 )
-            )
 
-            if text is None:
-                raise RuntimeError("No text content")
+                if text is None:
+                    raise RuntimeError("No text content")
 
-            index_file(db, row, text)
-            processed += 1
+                index_file(db, row, text)
+                processed += 1
 
-        except Exception as exc:
-            db.rollback()
-            failed = db.get(CodeFile, row_id)
+            except Exception as exc:
+                db.rollback()
+                failed = db.get(CodeFile, row_id)
 
-            if failed is not None:
-                failed.attempts = (failed.attempts or 0) + 1
-                failed.error = str(exc)[:200]
-                db.commit()
+                if failed is not None:
+                    failed.attempts = (failed.attempts or 0) + 1
+                    failed.error = str(exc)[:200]
+                    db.commit()
 
-            errors += 1
+                errors += 1
 
     status = index_status(db, workspace_id, repo)
 
     return {
         **status,
+        "scanned": scanned,
         "processed": processed,
         "errors": errors,
-        "done": status["files"] > 0 and status["pending"] == 0,
+        "done": (
+            status["files"] > 0
+            and status["pending"] == 0
+            and status["dirs_left"] == 0
+        ),
     }
 
 
@@ -473,9 +664,7 @@ def delete_repo_index(db: Session, workspace_id: int, repo: str) -> None:
     db.query(CodeSymbol).filter(
         CodeSymbol.workspace_id == workspace_id, CodeSymbol.repo == repo
     ).delete()
-    db.query(CodeFile).filter(
-        CodeFile.workspace_id == workspace_id, CodeFile.repo == repo
-    ).delete()
+    db.query(CodeFile).filter(*_scope(workspace_id, repo)).delete()
     db.commit()
 
 
@@ -584,7 +773,7 @@ def search_symbols(
 def workspace_index_counts(db: Session, workspace_id: int) -> dict:
     files = (
         db.query(func.count(CodeFile.id))
-        .filter(CodeFile.workspace_id == workspace_id)
+        .filter(CodeFile.workspace_id == workspace_id, CodeFile.size >= 0)
         .scalar()
         or 0
     )
