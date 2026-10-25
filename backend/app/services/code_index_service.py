@@ -308,6 +308,14 @@ def restart_scan(db: Session, workspace_id: int, repo: str) -> None:
         synchronize_session=False,
     )
 
+    # An explicit run gives files that gave up earlier a fresh start.
+    db.query(CodeFile).filter(
+        *_scope(workspace_id, repo), CodeFile.size >= 0, CodeFile.attempts > 0
+    ).update(
+        {"attempts": 0, "error": None},
+        synchronize_session=False,
+    )
+
     root = (
         db.query(CodeFile.id)
         .filter(*_scope(workspace_id, repo), CodeFile.path == "", CodeFile.size == DIR_SIZE)

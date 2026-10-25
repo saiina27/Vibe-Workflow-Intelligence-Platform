@@ -477,3 +477,22 @@ def test_prompt_tells_the_model_to_use_the_index_first():
 
     assert "first call find_in_code" in prompt
     assert "then read that file with get_file_contents" in prompt
+
+
+def test_explicit_rescan_gives_failed_files_a_fresh_start(db):
+    files = {"backend/app/router.py": SAMPLE}  # main.py cannot be read
+
+    for _ in range(3):
+        cidx.run_batch(db, 1, REPO, FakeGitHub(files=files), budget_seconds=30)
+
+    failed = db.query(CodeFile).filter_by(path="backend/main.py").one()
+    assert failed.attempts == 3
+
+    idle = FakeGitHub()
+    cidx.run_batch(db, 1, REPO, idle, scan=False, budget_seconds=30)
+    assert idle.fetched_files() == []  # not retried without a new request
+
+    out = run_until_done(db, FakeGitHub(), scan=True)
+
+    assert out["done"] is True
+    assert out["files"] == 2 and out["indexed"] == 2

@@ -85,13 +85,9 @@ async def github_caller(db: Session, workspace_id: int, user_id: int):
 
         return executor.execute(tool_name=tool_name, arguments=arguments)
 
-    try:
-        yield call
-    finally:
-        try:
-            await mcp_integration_manager.disconnect_github(user_id=user_id)
-        except Exception:
-            pass
+    # The GitHub connection is shared with the chat. Closing it here
+    # would break a chat answer that is using it, so it is left open.
+    yield call
 
 
 @router.get("/tracked-repos")
