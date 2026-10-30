@@ -7,6 +7,7 @@ from app.ai.tools.context import ToolContext
 from app.ai.tools.executor import ToolExecutor
 from app.ai.tools.registry import ToolRegistry, is_blocked_write_tool
 from app.ai.tools.result_compactor import compact_tool_result
+from app.ai.tools.untrusted import annotate
 from app.repositories.tool_call_log_repository import (
     ToolCallLogRepository,
 )
@@ -684,7 +685,7 @@ class ToolCallingService:
                     bounded["error"]
                 )[:max_chars]
 
-            return bounded
+            return annotate(bounded)
 
         # ----------------------------------------------------
         # NON-DICT RESULT

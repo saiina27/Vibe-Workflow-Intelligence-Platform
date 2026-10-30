@@ -1,12 +1,13 @@
 import json
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies.database import get_db
 from app.schemas.chat import ChatCreate, ChatResponse, ChatRename
 from app.dependencies.auth import get_current_user
+from app.core.rate_limit import ai_rate_limiter
 from app.services.chat_service import (
     create_chat,
     get_workspace_chats,
@@ -120,6 +121,15 @@ async def ask_chat(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    decision = ai_rate_limiter.check(current_user.id)
+
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=decision.message,
+            headers={"Retry-After": str(decision.retry_after)},
+        )
+
     response = await ask_ai(
         db=db,
         chat_id=chat_id,
@@ -161,6 +171,19 @@ def ask_chat_stream(
 
     def event_stream():
         try:
+
+            decision = ai_rate_limiter.check(current_user.id)
+
+            if not decision.allowed:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"type": "error", "message": decision.message},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                return
 
             for event in stream_ai_response(
                 db=db,
