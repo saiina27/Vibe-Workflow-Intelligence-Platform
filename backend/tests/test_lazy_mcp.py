@@ -151,3 +151,14 @@ def test_mixed_question_connects_both(build):
 
 def test_callers_without_a_prompt_still_connect_both(build):
     assert sorted(build(None)) == ["github", "slack"]
+
+
+def test_plain_statements_connect_nothing_unless_they_name_a_service():
+    for text in (
+        "we decided to use Redis for caching because it is fast",
+        "I decided to use Groq as the fallback provider",
+        "my project is called Vibe",
+    ):
+        assert ToolRegistry.mcp_needs(prompt_for(text)) == (False, False)
+
+    assert ToolRegistry.mcp_needs(prompt_for("we discussed this on Slack yesterday"))[1] is True

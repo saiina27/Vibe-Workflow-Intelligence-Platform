@@ -318,6 +318,28 @@ class ToolRegistry:
             "why", "reason", "reasons", "choose", "chose", "chosen", "decide",
         }
 
+        # A plain statement about the user's own work ("we decided to
+        # use Redis because ...") needs no MCP server unless it names
+        # one itself.
+        first_word = (text.split() or [""])[0].lower().strip("\"'")
+
+        statement_starts = {
+            "i", "i'm", "im", "we", "my", "our", "humne", "hum", "maine",
+            "mera", "meri", "mere", "hamara", "hamare", "hamari",
+        }
+        named_services = {
+            "slack", "github", "repo", "repos", "repository",
+            "repositories", "commit", "commits", "branch", "branches",
+            "pr", "prs", "pull", "issue", "issues",
+        }
+
+        if (
+            first_word in statement_starts
+            and "?" not in text
+            and not (words & named_services)
+        ):
+            return False, False
+
         github = (
             ToolRegistry._is_github_intent(prompt)
             or "only use github" in lowered

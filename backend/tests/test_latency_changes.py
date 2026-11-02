@@ -23,7 +23,6 @@ from app.services import conversation_service as cs
         "remember that tabs are fine",
         "mujhe Python pasand hai",
         "यह मेरा project है",
-        "show the latest commits of my project",
     ],
 )
 def test_messages_that_state_something_are_extracted(text):
@@ -39,6 +38,11 @@ def test_messages_that_state_something_are_extracted(text):
         "show the latest commits of the repo",
         "summarize the uploaded PDF",
         "search Slack for deployment",
+        "show the latest commits of my project",
+        "what is my name?",
+        "Do you remember my name",
+        "why did we choose Groq as the fallback provider",
+        "kya mera project deploy ho gaya?",
     ],
 )
 def test_generic_messages_skip_the_extraction_call(text):
@@ -123,13 +127,14 @@ def flow(monkeypatch):
     return SimpleNamespace(run=run, order=order, messages=messages, chat=chat)
 
 
-def test_answer_streams_before_title_topic_and_extraction(flow):
+def test_title_topic_and_extraction_run_with_the_answer_and_finish_before_done(flow):
     flow.run("we decided to use Groq as the fallback provider")
 
-    assert flow.order[:2] == ["yield", "yield"]
-    assert {"title", "topic", "extract", "title_saved", "memories_saved"} <= set(
-        flow.order[2:]
-    )
+    last_yield = max(i for i, e in enumerate(flow.order) if e == "yield")
+
+    assert {"title", "topic", "extract"} <= set(flow.order)
+    assert flow.order.index("title_saved") > last_yield
+    assert flow.order.index("memories_saved") > last_yield
     assert flow.chat.topic == "general"
 
 
@@ -227,3 +232,19 @@ def test_a_new_client_or_an_expired_cache_fetches_again(monkeypatch):
     discover(client)
 
     assert client.calls == 2
+
+
+def test_explicit_save_requests_are_extracted_even_in_question_form():
+    assert worth_extracting("Can you remember that I prefer tabs")
+    assert worth_extracting("save this: we use Postgres")
+    assert not worth_extracting("Can you remember that I prefer tabs?")
+
+
+def test_post_tasks_have_timeouts():
+    import inspect
+
+    source = inspect.getsource(cs.stream_ai_response)
+
+    assert "title_future.result(timeout=6)" in source
+    assert "topic_future.result(timeout=6)" in source
+    assert "memory_future.result(timeout=20)" in source

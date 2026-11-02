@@ -1510,6 +1510,51 @@ def stream_ai_response(
     # 15. STREAM AI RESPONSE
     # ========================================================
 
+    # Title, topic and memory extraction only need the user's message,
+    # so they start now and run while the answer is being written.
+
+    def _timed(label, fn):
+        def run(*args, **kwargs):
+            started = time.perf_counter()
+
+            try:
+                return fn(*args, **kwargs)
+
+            finally:
+                print(
+                    f"⏱️ {label} took "
+                    f"{(time.perf_counter() - started) * 1000:.0f} ms"
+                )
+
+        return run
+
+    pool = ThreadPoolExecutor(max_workers=3)
+
+    title_future = None
+    topic_future = None
+    memory_future = None
+
+    if chat.title == "New Chat":
+
+        title_future = pool.submit(
+            _timed("title", chat_title_generator.generate),
+            conversation=f"User: {content}",
+        )
+
+    if chat.topic is None:
+
+        topic_future = pool.submit(
+            _timed("topic", topic_detector.detect),
+            message=content,
+        )
+
+    if worth_extracting(content):
+
+        memory_future = pool.submit(
+            _timed("memory extraction", extract_memories),
+            content,
+        )
+
     response_chunks: list[str] = []
     first_token_logged = False
 
@@ -1587,6 +1632,8 @@ def stream_ai_response(
             "AI streaming failed."
         )
 
+        pool.shutdown(wait=False)
+
         raise
     # ========================================================
     # 16. BUILD COMPLETE RESPONSE
@@ -1646,38 +1693,11 @@ def stream_ai_response(
 
     t_post = time.perf_counter()
 
-    pool = ThreadPoolExecutor(max_workers=3)
-
-    title_future = None
-    topic_future = None
-    memory_future = None
-
-    if chat.title == "New Chat":
-
-        title_future = pool.submit(
-            chat_title_generator.generate,
-            conversation=f"User: {content}",
-        )
-
-    if chat.topic is None:
-
-        topic_future = pool.submit(
-            topic_detector.detect,
-            message=content,
-        )
-
-    if worth_extracting(content):
-
-        memory_future = pool.submit(
-            extract_memories,
-            content,
-        )
-
     if title_future is not None:
 
         try:
 
-            generated_title = title_future.result()
+            generated_title = title_future.result(timeout=6)
 
             if generated_title:
 
@@ -1697,7 +1717,7 @@ def stream_ai_response(
 
         try:
 
-            chat.topic = topic_future.result()
+            chat.topic = topic_future.result(timeout=6)
 
             db.commit()
             db.refresh(chat)
@@ -1720,14 +1740,21 @@ def stream_ai_response(
 
         if memory_future is not None:
 
-            extracted_memories = memory_future.result()
+            extracted_memories = memory_future.result(timeout=20)
 
             if extracted_memories:
+
+                t_save = time.perf_counter()
 
                 memory_decision_service.process_memories(
                     db=db,
                     workspace_id=chat.workspace_id,
                     memories=extracted_memories,
+                )
+
+                print(
+                    f"⏱️ saving memories took "
+                    f"{(time.perf_counter() - t_save) * 1000:.0f} ms"
                 )
 
                 logger.info(
