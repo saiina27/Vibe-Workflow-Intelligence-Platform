@@ -538,6 +538,38 @@ class ToolRegistry:
         max_tools: int = 8,
     ) -> list[ToolDefinition]:
         """
+        Tool definitions for a provider request. Definitions of MCP
+        tools (GitHub, Slack) are shortened, because their long
+        descriptions are resent on every model call and Groq's free
+        tier allows 8,000 tokens per minute. Vibe's own tools are
+        sent unchanged: their descriptions guide tool choice.
+        """
+
+        from app.ai.tools.tool_schema import compact_definition
+
+        definitions = self._definitions_for_prompt_full(prompt, max_tools)
+
+        result = []
+
+        for definition in definitions:
+            try:
+                tool = self.get(definition.name)
+            except Exception:
+                tool = None
+
+            if getattr(tool, "plugin_name", None):
+                definition = compact_definition(definition)
+
+            result.append(definition)
+
+        return result
+
+    def _definitions_for_prompt_full(
+        self,
+        prompt: str,
+        max_tools: int = 8,
+    ) -> list[ToolDefinition]:
+        """
         Return the most relevant tool definitions for a provider request.
 
         The complete registry remains available for execution. This method
