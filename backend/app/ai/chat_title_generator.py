@@ -34,10 +34,10 @@ Conversation:
 
         request = AIRequest(
             prompt=prompt,
-            task_type=TaskType.UNKNOWN,
+            task_type=TaskType.CODE,  # SIMPLE CODE is routed to Groq
             complexity=TaskComplexity.SIMPLE,
             temperature=0.2,
-            max_tokens=30,
+            max_tokens=400,  # reasoning tokens count too
         )
 
         response = self.gateway.generate(request)

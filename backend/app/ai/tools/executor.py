@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from app.ai.tools.registry import ToolRegistry
@@ -134,10 +135,19 @@ class ToolExecutor:
         # EXECUTE
         # ====================================================
 
+        started = time.perf_counter()
+
         try:
-            return tool.execute(
+            result = tool.execute(
                 **arguments
             )
+
+            print(
+                f"⏱️ tool {tool_name} ran in "
+                f"{(time.perf_counter() - started) * 1000:.0f} ms"
+            )
+
+            return result
 
         except TypeError as exc:
             raise RuntimeError(

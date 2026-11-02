@@ -16,6 +16,32 @@ from app.schemas.ai import (
 )
 
 
+def _effort_kwargs() -> dict:
+    """
+    Optional speed-up: GROQ_REASONING_EFFORT=low|medium|high makes
+    gpt-oss models think less. Unset means no change.
+    """
+
+    import os
+
+    value = (os.getenv("GROQ_REASONING_EFFORT") or "").strip().lower()
+
+    if value not in {"low", "medium", "high"}:
+        return {}
+
+    try:
+        from app.core.config import settings
+
+        model = str(settings.groq_model or "")
+    except Exception:
+        return {}
+
+    if "gpt-oss" not in model:
+        return {}
+
+    return {"extra_body": {"reasoning_effort": value}}
+
+
 class GroqProvider(AIProvider):
 
     def __init__(self):
@@ -52,6 +78,7 @@ class GroqProvider(AIProvider):
             ],
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            **_effort_kwargs(),
         )
 
         latency = (
@@ -110,6 +137,7 @@ class GroqProvider(AIProvider):
                 ],
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
+                **_effort_kwargs(),
                 stream=True,
             )
         )
@@ -159,7 +187,18 @@ class GroqProvider(AIProvider):
 
         for attempt in range(max_retries + 1):
             try:
-                return self.client.chat.completions.create(**kwargs)
+                import time as _time
+
+                started = _time.perf_counter()
+                response = self.client.chat.completions.create(**kwargs)
+                kind = "stream opened" if kwargs.get("stream") else "reply"
+                print(
+                    f"⏱️ Groq {kind} in "
+                    f"{(_time.perf_counter() - started) * 1000:.0f} ms "
+                    f"({kwargs.get('model')})"
+                )
+
+                return response
 
             except RateLimitError as exc:
                 message = str(exc)
@@ -347,6 +386,7 @@ class GroqProvider(AIProvider):
                 tool_choice="auto",
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
+                **_effort_kwargs(),
             )
         )
 
@@ -455,6 +495,7 @@ class GroqProvider(AIProvider):
             tool_choice="auto",
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            **_effort_kwargs(),
             stream=True,
         )
 
@@ -805,6 +846,7 @@ class GroqProvider(AIProvider):
                 tool_choice="auto",
                 temperature=request.temperature,
                 max_tokens=request.max_tokens,
+                **_effort_kwargs(),
             )
         )
 
@@ -1034,6 +1076,7 @@ class GroqProvider(AIProvider):
             messages=messages,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
+            **_effort_kwargs(),
             stream=True,
             **extra_kwargs,
         )

@@ -138,8 +138,10 @@ def compact_tool_result(result: Any, max_chars: int) -> Any:
         used += len(piece) + 1
 
     note = (
-        f"Showing {len(kept)} of {len(cleaned)} items; the rest were left "
-        "out to fit the size limit. Tell the user the list is partial."
+        f"Showing {len(kept)} of {len(cleaned)} items in this page of "
+        "results; the rest were left out to fit the size limit. This is "
+        "not the total number of items in the repository. Tell the user "
+        "the list is partial."
     )
 
     return {

@@ -1707,6 +1707,10 @@ def stream_ai_response(
                     title=generated_title,
                 )
 
+        except TimeoutError:
+
+            print("⏱️ title timed out; it will be retried on the next message")
+
         except Exception:
 
             logger.exception(
@@ -1721,6 +1725,10 @@ def stream_ai_response(
 
             db.commit()
             db.refresh(chat)
+
+        except TimeoutError:
+
+            print("⏱️ topic timed out; it will be retried on the next message")
 
         except Exception:
 
