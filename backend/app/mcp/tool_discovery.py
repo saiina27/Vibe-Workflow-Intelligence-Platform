@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from app.ai.tools.registry import ToolRegistry
 from app.mcp.client import MCPClient
 from app.mcp.tool_adapter import MCPToolAdapter
@@ -27,6 +29,11 @@ class MCPToolDiscovery:
     UNRELIABLE_GITHUB_TOOL_PREFIXES = (
         "search_commits",
     )
+
+    # The tool list of a connected server rarely changes, so it is
+    # kept on the (shared) client instead of being fetched for
+    # every request. A reconnect creates a new client and cache.
+    TOOLS_CACHE_SECONDS = 600
 
     def __init__(
         self,
@@ -64,11 +71,29 @@ class MCPToolDiscovery:
             Number of tools successfully registered.
         """
 
-        tools = self.client.list_tools()
-        print(
-            f"🔎 {self.plugin_name.capitalize()} MCP DISCOVERED TOOLS:",
-            [tool.name for tool in tools],
-        )
+        cached = getattr(self.client, "_tools_cache", None)
+        now = time.monotonic()
+
+        if (
+            isinstance(cached, tuple)
+            and len(cached) == 2
+            and isinstance(cached[0], float)
+            and now - cached[0] < self.TOOLS_CACHE_SECONDS
+        ):
+            tools = cached[1]
+
+        else:
+            tools = self.client.list_tools()
+
+            try:
+                self.client._tools_cache = (now, tools)
+            except Exception:
+                pass
+
+            print(
+                f"🔎 {self.plugin_name.capitalize()} MCP DISCOVERED TOOLS:",
+                [tool.name for tool in tools],
+            )
 
         excluded = [
             tool.name

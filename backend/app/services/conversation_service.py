@@ -1,5 +1,7 @@
 import logging
+import time
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -16,6 +18,7 @@ from app.ai.memory_extractor import (
     extract_memory,
 )
 from app.ai.memory_retriever import MemoryRetriever
+from app.ai.memory_filter import worth_extracting
 from app.ai.prompt_builder import build_prompt
 from app.ai.summary_generator import generate_summary
 from app.ai.topic_detector import TopicDetector
@@ -1163,6 +1166,8 @@ def stream_ai_response(
 
     debug_separator("STREAMING ASK AI START")
 
+    t_start = time.perf_counter()
+
     logger.info(
         "Chat ID: %s | User ID: %s",
         chat_id,
@@ -1356,107 +1361,22 @@ def stream_ai_response(
     )
 
     # ========================================================
-    # 6. AUTOMATIC CHAT TITLE
+    # 6-7. TITLE AND TOPIC
     # ========================================================
-
-    if chat.title == "New Chat":
-
-        try:
-
-            generated_title = (
-                chat_title_generator.generate(
-                    conversation=f"User: {content}"
-                )
-            )
-
-            if generated_title:
-
-                chat_repository.update_title(
-                    db=db,
-                    chat=chat,
-                    title=generated_title,
-                )
-
-        except Exception:
-
-            logger.exception(
-                "Streaming automatic title generation failed."
-            )
+    # Moved after the answer (step 18), so they no longer delay
+    # the first token.
 
     # ========================================================
-    # 7. AUTOMATIC CHAT TOPIC
+    # 8-9. MEMORY / KNOWLEDGE RETRIEVAL (not needed here)
     # ========================================================
+    # The prompt is built with include_memories=False and
+    # include_knowledge=False: the model searches both itself with
+    # the search_memory and search_knowledge tools. Retrieving here
+    # cost two embedding calls and two vector searches per message
+    # and the result was never used.
 
-    if chat.topic is None:
-
-        try:
-
-            detected_topic = topic_detector.detect(
-                message=content,
-            )
-
-            chat.topic = detected_topic
-
-            db.commit()
-            db.refresh(chat)
-
-        except Exception:
-
-            logger.exception(
-                "Streaming topic detection failed."
-            )
-
-            db.rollback()
-
-            chat = _get_authorized_chat(
-                db=db,
-                chat_id=chat_id,
-                user_id=user_id,
-            )
-
-    # ========================================================
-    # 8. MEMORY RETRIEVAL
-    # ========================================================
-
-    try:
-
-        memories = memory_retriever.retrieve(
-            db=db,
-            workspace_id=chat.workspace_id,
-            query=content,
-            limit=5,
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Streaming memory retrieval failed."
-        )
-
-        memories = []
-
-    # ========================================================
-    # 9. RAG KNOWLEDGE RETRIEVAL
-    # ========================================================
-
-    try:
-
-        knowledge_chunks = (
-            knowledge_retriever.retrieve(
-                db=db,
-                workspace_id=chat.workspace_id,
-                query=content,
-                limit=5,
-            )
-        )
-
-    except Exception:
-
-        logger.exception(
-            "Streaming knowledge retrieval failed."
-        )
-
-        knowledge_chunks = []
+    memories = []
+    knowledge_chunks = []
 
     # ========================================================
     # 10. LOAD CHAT HISTORY
@@ -1581,11 +1501,17 @@ def stream_ai_response(
         len(prompt),
     )
 
+    print(
+        f"⏱️ prepared in {(time.perf_counter() - t_start) * 1000:.0f} ms "
+        "(before the model starts)"
+    )
+
     # ========================================================
     # 15. STREAM AI RESPONSE
     # ========================================================
 
     response_chunks: list[str] = []
+    first_token_logged = False
 
     try:
 
@@ -1621,6 +1547,13 @@ def stream_ai_response(
                     response_chunks.append(
                         event.text
                     )
+
+                    if not first_token_logged:
+                        first_token_logged = True
+                        print(
+                            f"⏱️ first token after "
+                            f"{(time.perf_counter() - t_start) * 1000:.0f} ms"
+                        )
 
                     yield event
 
@@ -1663,6 +1596,11 @@ def stream_ai_response(
         response_chunks
     )
 
+    print(
+        f"⏱️ answer streamed in "
+        f"{(time.perf_counter() - t_start) * 1000:.0f} ms"
+    )
+
     if not ai_reply:
 
         raise RuntimeError(
@@ -1700,26 +1638,101 @@ def stream_ai_response(
         raise
 
     # ========================================================
-    # 18. AUTOMATIC MEMORY EXTRACTION
+    # 18. POST-RESPONSE WORK (title, topic, memory extraction)
     # ========================================================
+    # All three need only the user's message, not the answer. They
+    # run together now (the slowest one sets the wait) and after the
+    # answer, instead of one after another around it.
+
+    t_post = time.perf_counter()
+
+    pool = ThreadPoolExecutor(max_workers=3)
+
+    title_future = None
+    topic_future = None
+    memory_future = None
+
+    if chat.title == "New Chat":
+
+        title_future = pool.submit(
+            chat_title_generator.generate,
+            conversation=f"User: {content}",
+        )
+
+    if chat.topic is None:
+
+        topic_future = pool.submit(
+            topic_detector.detect,
+            message=content,
+        )
+
+    if worth_extracting(content):
+
+        memory_future = pool.submit(
+            extract_memories,
+            content,
+        )
+
+    if title_future is not None:
+
+        try:
+
+            generated_title = title_future.result()
+
+            if generated_title:
+
+                chat_repository.update_title(
+                    db=db,
+                    chat=chat,
+                    title=generated_title,
+                )
+
+        except Exception:
+
+            logger.exception(
+                "Streaming automatic title generation failed."
+            )
+
+    if topic_future is not None:
+
+        try:
+
+            chat.topic = topic_future.result()
+
+            db.commit()
+            db.refresh(chat)
+
+        except Exception:
+
+            logger.exception(
+                "Streaming topic detection failed."
+            )
+
+            db.rollback()
+
+            chat = _get_authorized_chat(
+                db=db,
+                chat_id=chat_id,
+                user_id=user_id,
+            )
 
     try:
 
-        extracted_memories = extract_memories(
-            content
-        )
+        if memory_future is not None:
 
-        if extracted_memories:
+            extracted_memories = memory_future.result()
 
-            memory_decision_service.process_memories(
-                db=db,
-                workspace_id=chat.workspace_id,
-                memories=extracted_memories,
-            )
+            if extracted_memories:
 
-            logger.info(
-                "Streaming automatic memories processed."
-            )
+                memory_decision_service.process_memories(
+                    db=db,
+                    workspace_id=chat.workspace_id,
+                    memories=extracted_memories,
+                )
+
+                logger.info(
+                    "Streaming automatic memories processed."
+                )
 
     except Exception:
 
@@ -1729,6 +1742,16 @@ def stream_ai_response(
 
         # Memory extraction must never invalidate
         # an otherwise successful AI response.
+
+    finally:
+
+        pool.shutdown(wait=False)
+
+    print(
+        f"⏱️ post-response work "
+        f"{(time.perf_counter() - t_post) * 1000:.0f} ms | total "
+        f"{(time.perf_counter() - t_start) * 1000:.0f} ms"
+    )
 
     # ========================================================
     # 19. COMPLETE

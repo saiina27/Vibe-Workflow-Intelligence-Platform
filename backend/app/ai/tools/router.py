@@ -1,3 +1,5 @@
+import time
+
 from app.ai.tools.context import ToolContext
 from app.ai.tools.knowledge_tool import KnowledgeTool
 from app.ai.tools.chat_search_tool import ChatSearchTool
@@ -42,6 +44,7 @@ class ToolRouter:
     ) -> ToolRegistry:
 
         registry = ToolRegistry()
+        t_setup = time.perf_counter()
 
         allowed_tools = (
             self.permission_service.get_allowed_tools(
@@ -220,5 +223,11 @@ class ToolRouter:
                     "GitHub MCP unavailable: "
                     f"{exc}"
                 )
+
+        print(
+            f"⏱️ tool setup took "
+            f"{(time.perf_counter() - t_setup) * 1000:.0f} ms "
+            f"(github={github_needed}, slack={slack_needed})"
+        )
 
         return registry
