@@ -285,6 +285,51 @@ class ToolRegistry:
         return latest
 
     @staticmethod
+    def mcp_needs(prompt: str | None) -> tuple[bool, bool]:
+        """
+        (needs_github, needs_slack) for the latest question, so the
+        router connects only the MCP servers that question can use.
+        When unsure it returns (True, True): connecting too much is
+        safer than missing a tool.
+        """
+
+        if not prompt:
+            return True, True
+
+        # No user message in the conversation: nothing to judge by.
+        conversation = prompt.rsplit("CURRENT CONVERSATION", 1)[-1]
+
+        if "\nUser:" not in conversation:
+            return True, True
+
+        text = ToolRegistry._intent_text(prompt)
+
+        if not text.strip():
+            return True, True
+
+        if any(ord(ch) > 127 and ch.isalpha() for ch in text):
+            return True, True
+
+        lowered = prompt.lower()
+        words = set(re.findall(r"[a-z0-9]+", text.lower()))
+
+        # "why did we choose X" may be discussed on Slack too.
+        decision_words = {
+            "why", "reason", "reasons", "choose", "chose", "chosen", "decide",
+        }
+
+        github = (
+            ToolRegistry._is_github_intent(prompt)
+            or "only use github" in lowered
+        )
+
+        slack = bool(
+            words & (SLACK_INTENT_WORDS | decision_words)
+        ) or "only use slack" in lowered
+
+        return github, slack
+
+    @staticmethod
     def _has_tracked_repos(prompt: str) -> bool:
         """True when the system part of the prompt lists tracked repos."""
 

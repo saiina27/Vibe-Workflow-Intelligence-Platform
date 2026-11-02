@@ -218,6 +218,7 @@ class AIGateway:
     def _build_streaming_registry(
         self,
         context: ToolContext,
+        prompt: str | None = None,
     ):
         """
         Build the request-scoped registry for the synchronous
@@ -241,7 +242,8 @@ class AIGateway:
 
             return asyncio.run(
                 self.tool_router.build_registry(
-                    context
+                    context,
+                    prompt,
                 )
             )
 
@@ -301,7 +303,8 @@ class AIGateway:
         # ====================================================
 
         registry = self._build_streaming_registry(
-            context
+            context,
+            request.prompt,
         )
 
         # ====================================================
@@ -634,7 +637,8 @@ class AIGateway:
         # ====================================================
 
         registry = await self.tool_router.build_registry(
-            context
+            context,
+            request.prompt,
         )
 
         # ====================================================

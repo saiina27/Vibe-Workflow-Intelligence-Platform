@@ -38,6 +38,7 @@ class ToolRouter:
     async def build_registry(
         self,
         context: ToolContext,
+        prompt: str | None = None,
     ) -> ToolRegistry:
 
         registry = ToolRegistry()
@@ -46,6 +47,14 @@ class ToolRouter:
             self.permission_service.get_allowed_tools(
                 context
             )
+        )
+
+        # Connect GitHub and Slack only when this question can use
+        # them. prompt=None (older callers) connects both.
+        github_needed, slack_needed = ToolRegistry.mcp_needs(prompt)
+
+        print(
+            f"🔌 MCP needed: github={github_needed}, slack={slack_needed}"
         )
 
         # ====================================================
@@ -121,7 +130,7 @@ class ToolRouter:
         # SLACK MCP
         # ====================================================
 
-        if "slack" in allowed_tools:
+        if "slack" in allowed_tools and slack_needed:
 
             try:
 
@@ -159,7 +168,7 @@ class ToolRouter:
         # GITHUB MCP
         # ====================================================
 
-        if "github" in allowed_tools:
+        if "github" in allowed_tools and github_needed:
 
             try:
 
