@@ -308,6 +308,8 @@ _FORMAT_AND_TOOL_SELECTION = """RESPONSE FORMAT RULES (for tool-based answers, e
   that clearly.
 - Never add table rows, commits or other items that are not in the
   tool result. If a list is partial, say so.
+- Show every item the tool returned. If you leave any out, say how
+  many.
 
 IMPORTANT TOOL SELECTION RULES:
 

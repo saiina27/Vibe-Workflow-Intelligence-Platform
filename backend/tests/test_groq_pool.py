@@ -241,3 +241,138 @@ def test_response_headers_update_the_budget_of_the_current_model(fresh):
     assert 2900 <= fresh.estimate("main") <= 3200
 
     budget.CURRENT.model = None
+
+
+# ---------------- pass 2: generate/stream use the pool, fast failover ----------------
+
+from app.models.enums import TaskComplexity, TaskType
+from app.schemas.ai import AIRequest
+
+
+def helper_request():
+    return AIRequest(
+        prompt="Title please",
+        task_type=TaskType.CODE,
+        complexity=TaskComplexity.SIMPLE,
+        max_tokens=300,
+    )
+
+
+def provider_with(create):
+    provider = groq_mod.GroqProvider.__new__(groq_mod.GroqProvider)
+    provider.model = "main"
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create))
+    )
+    return provider
+
+
+def test_has_room_looks_at_the_budget_and_at_blocks():
+    b = budget.ModelBudget(clock=Clock(0))
+
+    assert b.has_room("new", 5000)
+
+    b.update("m", 1000, 8000, 60)
+    assert not b.has_room("m", 5000)
+    assert b.has_room("m", 500)
+
+    b.block("m")
+    assert not b.has_room("m", 1)
+
+
+def test_failover_is_fast_only_when_the_next_model_has_room(monkeypatch, fresh):
+    monkeypatch.setenv("GROQ_MODEL_POOL", "big")
+    seen = []
+
+    def make():
+        provider = groq_mod.GroqProvider.__new__(groq_mod.GroqProvider)
+
+        def inner(**kwargs):
+            seen.append((kwargs["model"], kwargs.get("_fast")))
+            return "ok"
+
+        provider._create_with_rate_limit_retry_inner = inner
+        return provider
+
+    make()._create_with_rate_limit_retry(**request())
+    assert seen == [("main", True)]
+
+    seen.clear()
+    fresh.update("big", 100, 8000, 60)
+    make()._create_with_rate_limit_retry(**request())
+    assert seen == [("main", False)]
+
+    seen.clear()
+    monkeypatch.delenv("GROQ_MODEL_POOL")
+    make()._create_with_rate_limit_retry(**request())
+    assert seen == [("main", False)]
+
+
+def test_a_fast_call_turns_the_sdk_retry_off_and_fails_at_once():
+    options = []
+
+    class Client:
+        def __init__(self):
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+
+        def with_options(self, **kwargs):
+            options.append(kwargs)
+            return self
+
+        def create(self, **kwargs):
+            raise rate_error("Rate limit ... tokens per minute ... try again in 12s")
+
+    provider = groq_mod.GroqProvider.__new__(groq_mod.GroqProvider)
+    provider.client = Client()
+
+    with pytest.raises(groq.RateLimitError):
+        provider._create_with_rate_limit_retry_inner(
+            model="m", messages=[], _fast=True
+        )
+
+    assert options == [{"max_retries": 0}]
+
+
+def test_generate_goes_through_the_pool(monkeypatch, fresh):
+    monkeypatch.setenv("GROQ_MODEL_POOL", "big")
+    models = []
+
+    def create(**kwargs):
+        models.append(kwargs["model"])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="A title"))],
+            usage=None,
+        )
+
+    response = provider_with(create).generate(helper_request())
+
+    assert response.content == "A title"
+    assert models == ["big"]
+
+
+def test_stream_goes_through_the_pool(monkeypatch, fresh):
+    monkeypatch.setenv("GROQ_MODEL_POOL", "big")
+    models = []
+
+    def create(**kwargs):
+        models.append(kwargs["model"])
+        assert kwargs["stream"] is True
+        return iter(
+            [
+                SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="a"))]),
+                SimpleNamespace(choices=[]),
+            ]
+        )
+
+    assert list(provider_with(create).stream(helper_request())) == ["a"]
+    assert models == ["big"]
+
+
+def test_prompt_asks_for_every_returned_item():
+    from app.ai.prompt_builder import build_prompt
+
+    prompt = build_prompt(
+        [], None, [SimpleNamespace(role="user", content="hi")], [], False, False
+    )
+
+    assert "Show every item the tool returned" in prompt

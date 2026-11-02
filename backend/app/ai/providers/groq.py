@@ -112,7 +112,7 @@ class GroqProvider(AIProvider):
             or self.model
         )
 
-        response = self.client.chat.completions.create(
+        response = self._create_with_rate_limit_retry(
             model=model,
             messages=[
                 {
@@ -171,7 +171,7 @@ class GroqProvider(AIProvider):
         )
 
         response_stream = (
-            self.client.chat.completions.create(
+            self._create_with_rate_limit_retry(
                 model=model,
                 messages=[
                     {
@@ -242,8 +242,18 @@ class GroqProvider(AIProvider):
                     f"(candidates: {', '.join(str(m) for m in models)})"
                 )
 
+            following = models[index + 1] if index + 1 < len(models) else None
+
+            # Fail over at once only when the next model has room; the SDK's
+            # own silent retry (it waits for retry-after) is switched off.
+            fast = following is not None and budget.BUDGET.has_room(
+                following, budget.estimate_need(kwargs)
+            )
+
             try:
-                return self._create_with_rate_limit_retry_inner(**kwargs)
+                return self._create_with_rate_limit_retry_inner(
+                    _fast=fast, **kwargs
+                )
 
             except RateLimitError as exc:
                 if "per day" in str(exc):
@@ -263,6 +273,15 @@ class GroqProvider(AIProvider):
         per-minute (TPM) 429s. Per-day (TPD) limits and long
         waits are raised immediately.
         """
+
+        fast = kwargs.pop("_fast", False)
+        client = self.client
+
+        if fast:
+            try:
+                client = self.client.with_options(max_retries=0)
+            except Exception:
+                client = self.client
 
         max_retries = 2
 
@@ -290,7 +309,7 @@ class GroqProvider(AIProvider):
                     pass
 
                 started = _time.perf_counter()
-                response = self.client.chat.completions.create(**kwargs)
+                response = client.chat.completions.create(**kwargs)
                 kind = "stream opened" if kwargs.get("stream") else "reply"
                 print(
                     f"⏱️ Groq {kind} in "
@@ -301,6 +320,9 @@ class GroqProvider(AIProvider):
                 return response
 
             except RateLimitError as exc:
+                if fast:
+                    raise
+
                 message = str(exc)
                 wait = self._retry_after_seconds(message)
 

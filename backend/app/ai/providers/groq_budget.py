@@ -73,6 +73,16 @@ class ModelBudget:
 
         return remaining + (limit - remaining) * min(1.0, elapsed / reset)
 
+    def has_room(self, model, need) -> bool:
+        """True when the model is not blocked and probably has `need` tokens."""
+
+        if self.is_blocked(model):
+            return False
+
+        estimate = self.estimate(model)
+
+        return estimate is None or estimate >= need
+
     def block(self, model, seconds=DAILY_BLOCK_SECONDS) -> None:
         with self._lock:
             self._blocked[model] = self._clock() + seconds
