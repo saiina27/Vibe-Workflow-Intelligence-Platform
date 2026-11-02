@@ -42,13 +42,43 @@ def _effort_kwargs() -> dict:
     return {"extra_body": {"reasoning_effort": value}}
 
 
+def _log_http_response(response) -> None:
+    """Print Groq's rate-limit headers (diagnostics only, never raises)."""
+
+    try:
+        headers = response.headers
+        remaining = headers.get("x-ratelimit-remaining-tokens")
+
+        print(
+            f"⏱️ Groq HTTP {response.status_code} | remaining tokens "
+            f"{remaining} | reset {headers.get('x-ratelimit-reset-tokens')} "
+            f"| retry-after {headers.get('retry-after')}"
+        )
+    except Exception:
+        pass
+
+
+def _make_client():
+    """Groq client that logs rate-limit headers; plain client as fallback."""
+
+    try:
+        from groq import DefaultHttpxClient
+
+        return Groq(
+            api_key=settings.groq_api_key,
+            http_client=DefaultHttpxClient(
+                event_hooks={"response": [_log_http_response]}
+            ),
+        )
+    except Exception:
+        return Groq(api_key=settings.groq_api_key)
+
+
 class GroqProvider(AIProvider):
 
     def __init__(self):
 
-        self.client = Groq(
-            api_key=settings.groq_api_key
-        )
+        self.client = _make_client()
 
         self.model = settings.groq_model
 
@@ -188,6 +218,25 @@ class GroqProvider(AIProvider):
         for attempt in range(max_retries + 1):
             try:
                 import time as _time
+
+                try:
+                    message_tokens = len(
+                        json.dumps(kwargs.get("messages", []), default=str)
+                    ) // 4
+                    tool_tokens = len(
+                        json.dumps(kwargs.get("tools") or [], default=str)
+                    ) // 4
+                    effort = (kwargs.get("extra_body") or {}).get(
+                        "reasoning_effort", "default"
+                    )
+
+                    print(
+                        f"⏱️ Groq request ≈ {message_tokens} message tokens + "
+                        f"{tool_tokens} tool-definition tokens "
+                        f"(reasoning: {effort})"
+                    )
+                except Exception:
+                    pass
 
                 started = _time.perf_counter()
                 response = self.client.chat.completions.create(**kwargs)
