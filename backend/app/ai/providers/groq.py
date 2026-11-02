@@ -6,6 +6,7 @@ from typing import Any
 
 from groq import Groq, RateLimitError
 
+from app.ai.providers import groq_budget as budget
 from app.ai.providers.base import AIProvider
 from app.core.config import settings
 from app.schemas.ai import (
@@ -54,6 +55,19 @@ def _log_http_response(response) -> None:
             f"{remaining} | reset {headers.get('x-ratelimit-reset-tokens')} "
             f"| retry-after {headers.get('retry-after')}"
         )
+
+        model = getattr(budget.CURRENT, "model", None)
+
+        if model and remaining is not None:
+            budget.BUDGET.update(
+                model,
+                int(float(remaining)),
+                int(float(
+                    headers.get("x-ratelimit-limit-tokens")
+                    or budget.DEFAULT_LIMIT
+                )),
+                budget.parse_duration(headers.get("x-ratelimit-reset-tokens")),
+            )
     except Exception:
         pass
 
@@ -207,6 +221,43 @@ class GroqProvider(AIProvider):
         return minutes * 60 + seconds
 
     def _create_with_rate_limit_retry(self, **kwargs):
+        """
+        Picks the Groq model with enough token budget (see
+        GROQ_MODEL_POOL), and tries the next one when a model is
+        rate limited. Without a pool this is the plain call.
+        """
+
+        main = kwargs.get("model")
+        models = budget.candidate_models(main, kwargs)
+
+        for index, model in enumerate(models):
+            if model is not None:
+                kwargs["model"] = model
+
+            budget.CURRENT.model = kwargs.get("model")
+
+            if len(models) > 1:
+                print(
+                    f"⏱️ Groq model: {model} "
+                    f"(candidates: {', '.join(str(m) for m in models)})"
+                )
+
+            try:
+                return self._create_with_rate_limit_retry_inner(**kwargs)
+
+            except RateLimitError as exc:
+                if "per day" in str(exc):
+                    budget.BUDGET.block(model)
+
+                if index == len(models) - 1:
+                    raise
+
+                print(
+                    f"⏱️ Groq {model} is rate limited; trying "
+                    f"{models[index + 1]}"
+                )
+
+    def _create_with_rate_limit_retry_inner(self, **kwargs):
         """
         chat.completions.create() with a short retry for
         per-minute (TPM) 429s. Per-day (TPD) limits and long

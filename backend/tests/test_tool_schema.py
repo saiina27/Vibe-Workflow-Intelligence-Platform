@@ -161,3 +161,12 @@ def test_the_same_tools_are_exposed_as_before():
     names = set(definitions("show the latest commits of my repo X"))
 
     assert names == {"list_commits", "get_me", "search_web", "search_knowledge", "search_memory"}
+
+
+def test_tool_definition_sizes_are_logged(capsys):
+    definitions("show the latest commits of my repo X")
+
+    out = capsys.readouterr().out
+
+    assert "tool definitions:" in out
+    assert "list_commits≈" in out

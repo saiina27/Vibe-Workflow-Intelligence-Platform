@@ -562,6 +562,17 @@ class ToolRegistry:
 
             result.append(definition)
 
+        try:
+            import json as _json
+
+            sizes = ", ".join(
+                f"{d.name}≈{len(_json.dumps(d.model_dump(), default=str)) // 4}"
+                for d in result
+            )
+            print(f"⏱️ tool definitions: {sizes}")
+        except Exception:
+            pass
+
         return result
 
     def _definitions_for_prompt_full(
