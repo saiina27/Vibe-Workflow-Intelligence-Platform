@@ -191,6 +191,23 @@ def _slim(node):
     return node
 
 
+def _extras(rows) -> dict:
+    """Hints that travel with a list result: how many rows it has, and the
+    table columns for changed-file rows."""
+
+    out = {"_count": len(rows)}
+
+    if rows and all(
+        isinstance(r, dict) and "file" in r and "status" in r for r in rows
+    ):
+        out["_columns"] = (
+            "Show these rows as a table with the columns: File, Status, "
+            "Additions, Deletions."
+        )
+
+    return out
+
+
 def compact_tool_result(result: Any, max_chars: int) -> Any:
     """
     Make an MCP tool result smaller before it goes to the model.
@@ -219,8 +236,15 @@ def compact_tool_result(result: Any, max_chars: int) -> Any:
 
     full = _dumps(cleaned)
 
+    extras = _extras(cleaned)
+
     if len(full) <= max_chars:
-        return {**result, "data": full}
+        print(
+            f"⏱️ tool result for the model: {len(cleaned)} rows, "
+            f"{len(full)} chars"
+        )
+
+        return {**result, "data": full, **extras}
 
     budget = max_chars - 120
     kept: list = []
@@ -235,6 +259,11 @@ def compact_tool_result(result: Any, max_chars: int) -> Any:
         kept.append(item)
         used += len(piece) + 1
 
+    print(
+        f"⏱️ tool result for the model: {len(kept)} of {len(cleaned)} rows, "
+        f"{len(_dumps(kept))} chars"
+    )
+
     note = (
         f"Showing {len(kept)} of {len(cleaned)} items in this page of "
         "results; the rest were left out to fit the size limit. This is "
@@ -247,4 +276,5 @@ def compact_tool_result(result: Any, max_chars: int) -> Any:
         "data": _dumps(kept),
         "_truncated": True,
         "_note": note,
+        **{**extras, "_count": len(kept)},
     }

@@ -189,4 +189,5 @@ def test_prompt_has_the_count_and_pr_file_rules():
     )
 
     assert "State only the number of items you actually list" in prompt
-    assert "File, Status,\n  Additions, Deletions" in prompt
+    assert "File, Status" not in prompt
+    assert '"_count"' in prompt

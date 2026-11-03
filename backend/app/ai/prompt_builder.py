@@ -311,10 +311,8 @@ _FORMAT_AND_TOOL_SELECTION = """RESPONSE FORMAT RULES (for tool-based answers, e
 - Show every item the tool returned. If you leave any out, say how
   many.
 - State only the number of items you actually list. Never say "five" or
-  "ten" because you asked for that many; use the count in the tool
-  result or in its "Showing N of M" note.
-- For the files changed in a pull request use the columns: File, Status,
-  Additions, Deletions.
+  "ten" because you asked for that many; use "_count" from the tool
+  result or its "Showing N of M" note.
 
 IMPORTANT TOOL SELECTION RULES:
 
