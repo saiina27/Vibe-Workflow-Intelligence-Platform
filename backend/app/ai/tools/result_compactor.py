@@ -93,6 +93,104 @@ def _clean(node: Any) -> Any:
     return node
 
 
+def _day(value):
+    return value[:10] if isinstance(value, str) and len(value) >= 10 else value
+
+
+def _login(value):
+    if isinstance(value, dict):
+        return value.get("login") or value.get("name")
+
+    return value if isinstance(value, str) else None
+
+
+def _label_names(labels):
+    if isinstance(labels, dict):
+        labels = labels.get("nodes") or labels.get("edges") or []
+
+    names = []
+
+    for label in labels if isinstance(labels, list) else []:
+        name = label.get("name") if isinstance(label, dict) else label
+
+        if isinstance(name, str):
+            names.append(name)
+
+    return names
+
+
+def _row(item):
+    """One short row per commit, issue, pull request or changed file.
+    Anything else is returned unchanged."""
+
+    if not isinstance(item, dict):
+        return item
+
+    try:
+        commit = item.get("commit")
+
+        if isinstance(item.get("sha"), str) and isinstance(commit, dict):
+            who = commit.get("author") if isinstance(commit.get("author"), dict) else {}
+            first_line = (commit.get("message") or "").strip().split("\n")[0]
+
+            row = {
+                "sha": item["sha"],
+                "message": first_line[:200],
+                "author": who.get("name") or _login(item.get("author")),
+                "date": _day(who.get("date")),
+            }
+
+            return {k: v for k, v in row.items() if v}
+
+        if isinstance(item.get("filename"), str) and "status" in item:
+            row = {
+                "file": item["filename"],
+                "status": item.get("status"),
+                "additions": item.get("additions"),
+                "deletions": item.get("deletions"),
+            }
+
+            return {k: v for k, v in row.items() if v is not None}
+
+        if "number" in item and isinstance(item.get("title"), str):
+            row = {
+                "number": item["number"],
+                "title": item["title"][:150],
+                "state": item.get("state"),
+                "author": _login(item.get("user") or item.get("author")),
+                "date": _day(item.get("created_at") or item.get("createdAt")),
+                "labels": _label_names(item.get("labels")) or None,
+            }
+
+            if item.get("draft"):
+                row["draft"] = True
+
+            if item.get("merged_at") or item.get("merged"):
+                row["merged"] = True
+
+            return {k: v for k, v in row.items() if v}
+
+    except Exception:
+        return item
+
+    return item
+
+
+def _slim(node):
+    if isinstance(node, list):
+        return [_row(item) for item in node]
+
+    if isinstance(node, dict):
+        for key in ("issues", "items", "pull_requests"):
+            if isinstance(node.get(key), list):
+                out = dict(node)
+                out[key] = [_row(item) for item in node[key]]
+
+                return out
+
+    return node
+
+
 def compact_tool_result(result: Any, max_chars: int) -> Any:
     """
     Make an MCP tool result smaller before it goes to the model.
@@ -114,7 +212,7 @@ def compact_tool_result(result: Any, max_chars: int) -> Any:
     except (ValueError, TypeError):
         return {**result, "data": text}
 
-    cleaned = _clean(parsed)
+    cleaned = _slim(_clean(parsed))
 
     if not isinstance(cleaned, list):
         return {**result, "data": _dumps(cleaned)}

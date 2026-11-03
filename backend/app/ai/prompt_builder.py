@@ -310,6 +310,11 @@ _FORMAT_AND_TOOL_SELECTION = """RESPONSE FORMAT RULES (for tool-based answers, e
   tool result. If a list is partial, say so.
 - Show every item the tool returned. If you leave any out, say how
   many.
+- State only the number of items you actually list. Never say "five" or
+  "ten" because you asked for that many; use the count in the tool
+  result or in its "Showing N of M" note.
+- For the files changed in a pull request use the columns: File, Status,
+  Additions, Deletions.
 
 IMPORTANT TOOL SELECTION RULES:
 
@@ -500,6 +505,11 @@ def _system_prompt(history, tracked_repos=None) -> str:
     return "".join(parts)
 
 
+# Older assistant answers are resent with every question, so they are
+# shortened to this many characters. The last two messages stay complete.
+HISTORY_ANSWER_CHARS = 500
+
+
 def build_prompt(
     memories: list[WorkspaceMemory],
     conversation_summary: ConversationSummary | None,
@@ -612,12 +622,25 @@ def build_prompt(
 
     # Keep the prompt small (Groq free-tier token limits): only the
     # most recent messages. The latest user message is always last.
-    for message in history[-8:]:
+    recent = history[-8:]
+
+    for index, message in enumerate(recent):
 
         role = message.role.capitalize()
+        content = message.content or ""
+
+        if (
+            message.role == "assistant"
+            and index < len(recent) - 2
+            and len(content) > HISTORY_ANSWER_CHARS
+        ):
+            content = (
+                content[:HISTORY_ANSWER_CHARS].rstrip()
+                + " ... [shortened]"
+            )
 
         prompt += (
-            f"{role}: {message.content}\n"
+            f"{role}: {content}\n"
         )
 
     # ========================================================
