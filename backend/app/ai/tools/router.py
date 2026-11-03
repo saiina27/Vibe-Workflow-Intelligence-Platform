@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from app.ai.tools.context import ToolContext
@@ -36,6 +37,45 @@ class ToolRouter:
         self.mcp_integration_manager = (
             mcp_integration_manager
         )
+
+    async def _connect_with_retry(self, provider, context, registry):
+        """
+        Connect an MCP server and discover its tools. After a failure the
+        broken connection is dropped and one fresh attempt is made, so a
+        single transient error does not leave the server unusable.
+        """
+
+        manager = self.mcp_integration_manager
+        connect = getattr(manager, f"connect_{provider}")
+        last = None
+
+        for attempt in range(2):
+            try:
+                return await connect(
+                    db=context.db,
+                    user_id=context.user_id,
+                    registry=registry,
+                )
+
+            except Exception as exc:
+                last = exc
+
+                print(
+                    f"🔌 {provider} MCP attempt {attempt + 1} failed: {exc}"
+                )
+
+                drop = getattr(manager, f"disconnect_{provider}", None)
+
+                if drop is not None:
+                    try:
+                        await drop(user_id=context.user_id)
+                    except Exception:
+                        pass
+
+                if attempt == 0:
+                    await asyncio.sleep(0.5)
+
+        raise last
 
     async def build_registry(
         self,
@@ -142,13 +182,10 @@ class ToolRouter:
                     "slack",
                 )
 
-                registered = (
-                    await self.mcp_integration_manager
-                    .connect_slack(
-                        db=context.db,
-                        user_id=context.user_id,
-                        registry=registry,
-                    )
+                registered = await self._connect_with_retry(
+                    "slack",
+                    context,
+                    registry,
                 )
 
                 print(
@@ -199,13 +236,10 @@ class ToolRouter:
                         "github",
                     )
 
-                    registered = (
-                        await self.mcp_integration_manager
-                        .connect_github(
-                            db=context.db,
-                            user_id=context.user_id,
-                            registry=registry,
-                        )
+                    registered = await self._connect_with_retry(
+                        "github",
+                        context,
+                        registry,
                     )
 
                     print(

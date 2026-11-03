@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from mcp import StdioServerParameters
@@ -134,6 +135,7 @@ class MCPServerManager:
     def __init__(self) -> None:
         self._configs: dict[str, MCPServerConfig] = {}
         self._clients: dict[str, MCPClient] = {}
+        self._connect_lock = threading.Lock()
 
     # ========================================================
     # SERVER REGISTRATION
@@ -219,7 +221,31 @@ class MCPServerManager:
     # CONNECT
     # ========================================================
 
+    @staticmethod
+    def _is_alive(client) -> bool:
+        """A client counts as dead only when it says so itself."""
+
+        state = getattr(client, "is_connected", None)
+
+        try:
+            if callable(state):
+                state = state()
+
+            return True if state is None else bool(state)
+        except Exception:
+            return True
+
     async def connect(
+        self,
+        name: str,
+        access_token: str | None = None,
+    ) -> MCPClient:
+        """One connect at a time, so parallel requests share one client."""
+
+        with self._connect_lock:
+            return await self._connect_unlocked(name, access_token)
+
+    async def _connect_unlocked(
         self,
         name: str,
         access_token: str | None = None,
@@ -241,8 +267,19 @@ class MCPServerManager:
         authentication.
         """
 
-        if name in self._clients:
-            return self._clients[name]
+        existing = self._clients.get(name)
+
+        if existing is not None:
+            if self._is_alive(existing):
+                return existing
+
+            print(f"🔌 Dropping a dead MCP connection: {name}")
+            self._clients.pop(name, None)
+
+            try:
+                existing.close()
+            except Exception:
+                pass
 
         config = self.get_config(name)
 

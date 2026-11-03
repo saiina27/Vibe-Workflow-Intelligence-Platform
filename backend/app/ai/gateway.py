@@ -307,6 +307,29 @@ class AIGateway:
             request.prompt,
         )
 
+        # GitHub could not be loaded: answer at once when nothing else can
+        # help, otherwise tell the model.
+        from app.ai.mcp_status import (
+            GITHUB_DOWN_MESSAGE,
+            add_github_down_note,
+            github_unavailable,
+            only_core_tools,
+        )
+
+        if github_unavailable(request.prompt, registry):
+            exposed_now = {
+                d.name
+                for d in registry.definitions_for_prompt(request.prompt)
+            }
+
+            if only_core_tools(exposed_now):
+                from app.schemas.ai import AIStreamEvent as _DownEvent
+
+                yield _DownEvent(type="content", text=GITHUB_DOWN_MESSAGE)
+                return
+
+            request.prompt = add_github_down_note(request.prompt)
+
         # ====================================================
         # STEP 2: ATTACH TOOL DEFINITIONS
         # ====================================================
