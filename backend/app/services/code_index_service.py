@@ -799,3 +799,92 @@ def workspace_index_counts(db: Session, workspace_id: int) -> dict:
     )
 
     return {"files": files, "pending": pending, "symbols": symbols}
+
+
+# ------------------------------------------------------------
+# Code snippets for find_in_code
+# ------------------------------------------------------------
+
+SNIPPET_CONTEXT = 3
+FIRST_FILE_CHARS = 2800
+SECOND_FILE_CHARS = 1200
+GENERIC_SHARE = 0.2
+
+
+def keyword_windows(
+    text: str,
+    tokens: list[str],
+    max_chars: int,
+    fallback_line: int | None = None,
+    context: int = SNIPPET_CONTEXT,
+) -> tuple[str, bool]:
+    """
+    Numbered lines around the lines that mention the most specific
+    keywords of a file. A keyword that is on a large share of the lines
+    (like "provider" in a provider router) is ignored. Returns
+    (snippet, truncated).
+    """
+
+    lines = text.splitlines()
+    total = len(lines)
+
+    if not total or not tokens:
+        return "", False
+
+    lowered = [line.lower() for line in lines]
+    hits = {t: [i for i, line in enumerate(lowered) if t in line] for t in tokens}
+    present = {t: idx for t, idx in hits.items() if idx}
+
+    chosen: dict = {}
+
+    if present:
+        limit = max(6, int(total * GENERIC_SHARE))
+        chosen = {t: idx for t, idx in present.items() if len(idx) <= limit}
+
+        if not chosen:
+            rarest = min(present, key=lambda t: len(present[t]))
+            chosen = {rarest: present[rarest]}
+
+    hit_lines = sorted({i for idx in chosen.values() for i in idx})
+
+    ranges: list = []
+
+    if hit_lines:
+        for i in hit_lines:
+            a = max(0, i - context)
+            b = min(total - 1, i + context)
+
+            if ranges and a <= ranges[-1][1] + 1:
+                ranges[-1][1] = max(ranges[-1][1], b)
+            else:
+                ranges.append([a, b])
+
+    elif fallback_line:
+        a = max(0, fallback_line - 2)
+        ranges = [[a, min(total - 1, fallback_line + 28)]]
+
+    else:
+        return "", False
+
+    out: list[str] = []
+    used = 0
+    truncated = False
+
+    for index, (a, b) in enumerate(ranges):
+        if index > 0:
+            out.append("...")
+
+        for i in range(a, b + 1):
+            row = f"{i + 1}| {lines[i][:160]}"
+
+            if used + len(row) + 1 > max_chars:
+                truncated = True
+                break
+
+            out.append(row)
+            used += len(row) + 1
+
+        if truncated:
+            break
+
+    return "\n".join(out), truncated

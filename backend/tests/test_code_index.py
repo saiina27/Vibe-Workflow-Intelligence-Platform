@@ -476,7 +476,7 @@ def test_prompt_tells_the_model_to_use_the_index_first():
     prompt = prompt_for("explain how the provider cooldown works", [REPO])
 
     assert "first call find_in_code" in prompt
-    assert "then read that file with get_file_contents" in prompt
+    assert "answer from the code snippets" in prompt
 
 
 def test_explicit_rescan_gives_failed_files_a_fresh_start(db):
