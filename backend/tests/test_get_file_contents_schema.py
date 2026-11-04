@@ -55,7 +55,7 @@ def defs_by_name(prompt):
     }
 
 
-def test_fields_hidden_for_get_file_contents_only():
+def test_fields_hidden_for_all_mcp_tools():
     defs = defs_by_name("show the README of my repo X")
 
     file_params = defs["get_file_contents"].parameters
@@ -63,7 +63,9 @@ def test_fields_hidden_for_get_file_contents_only():
     assert "fields" not in file_params["required"]
     assert "owner" in file_params["properties"]
 
-    assert "fields" in defs["list_commits"].parameters["properties"]
+    # `fields` is hidden for every MCP tool: the model filled it with values
+    # the provider rejected, and results are trimmed by the compactor anyway.
+    assert "fields" not in defs["list_commits"].parameters["properties"]
 
 
 def test_original_tool_schema_not_modified():

@@ -1,7 +1,7 @@
 import time
 from typing import Any
 
-from app.ai.tools.registry import ToolRegistry
+from app.ai.tools.registry import ToolRegistry, is_blocked_write_tool
 from app.ai.tools.context import ToolContext
 from app.mcp.permissions import MCPPermissionService
 from app.mcp.tool_adapter import MCPToolAdapter
@@ -36,6 +36,46 @@ class ToolExecutor:
         self.mcp_permission_service = (
             mcp_permission_service
         )
+
+    # A hosted MCP server sometimes answers with a generic error that
+    # goes away when the same read-only call is repeated.
+    TRANSIENT_MARKERS = ("server returned an error response",)
+    RETRY_DELAY_SECONDS = 0.7
+
+    def _execute_with_retry(
+        self,
+        tool,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> Any:
+        retry = (
+            isinstance(tool, MCPToolAdapter)
+            and not is_blocked_write_tool(tool_name)
+        )
+
+        try:
+            return tool.execute(**arguments)
+
+        except TypeError:
+            raise
+
+        except Exception as exc:
+            transient = any(
+                marker in str(exc).lower()
+                for marker in self.TRANSIENT_MARKERS
+            )
+
+            if not (retry and transient):
+                raise
+
+            print(
+                f"🔁 {tool_name} hit a transient MCP error; "
+                f"retrying once: {exc}"
+            )
+
+            time.sleep(self.RETRY_DELAY_SECONDS)
+
+            return tool.execute(**arguments)
 
     # ========================================================
     # EXECUTE TOOL
@@ -138,8 +178,10 @@ class ToolExecutor:
         started = time.perf_counter()
 
         try:
-            result = tool.execute(
-                **arguments
+            result = self._execute_with_retry(
+                tool,
+                tool_name,
+                arguments,
             )
 
             print(

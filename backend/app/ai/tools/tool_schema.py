@@ -68,9 +68,35 @@ def compact_schema(node, limit: int = MAX_PARAM_DESCRIPTION):
     return out
 
 
+# Optional output-trimming parameters. The model fills them with values the
+# provider then rejects, and the results are already trimmed by the
+# result compactor, so the model never sees them.
+HIDDEN_PARAMS = {"fields"}
+
+
+def hide_params(schema):
+    if not isinstance(schema, dict):
+        return schema
+
+    props = schema.get("properties")
+
+    if not isinstance(props, dict) or not (HIDDEN_PARAMS & set(props)):
+        return schema
+
+    out = dict(schema)
+    out["properties"] = {k: v for k, v in props.items() if k not in HIDDEN_PARAMS}
+
+    required = schema.get("required")
+
+    if isinstance(required, list):
+        out["required"] = [r for r in required if r not in HIDDEN_PARAMS]
+
+    return out
+
+
 def compact_definition(definition: ToolDefinition) -> ToolDefinition:
     return ToolDefinition(
         name=definition.name,
         description=shorten(definition.description, MAX_DESCRIPTION),
-        parameters=compact_schema(definition.parameters),
+        parameters=compact_schema(hide_params(definition.parameters)),
     )

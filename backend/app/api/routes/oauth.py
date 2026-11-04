@@ -83,8 +83,14 @@ def github_connect(
         "authorization_url": authorization_url,
     }
 
+from fastapi import BackgroundTasks
+
+from app.mcp.prewarm import warm_github
+
+
 @router.get("/github/status")
 def github_status(
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -94,8 +100,15 @@ def github_status(
         provider="github",
     )
 
+    connected = integration is not None
+
+    if connected:
+        # The page just loaded: connect GitHub MCP in the background so
+        # the first question is faster.
+        background_tasks.add_task(warm_github, current_user.id)
+
     return {
-        "connected": integration is not None,
+        "connected": connected,
     }
 
 @router.delete("/github/disconnect")
