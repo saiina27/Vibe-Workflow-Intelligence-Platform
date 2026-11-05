@@ -229,3 +229,48 @@ def test_the_description_and_prompt_say_the_code_comes_with_the_result(db):
     )
 
     assert "answer from the code snippets" in prompt
+
+
+# ---------------- scoring ----------------
+
+def test_rare_keyword_lines_beat_generic_lines_even_late_in_the_file():
+    lines = [f"    provider_step_{i}()  # provider" for i in range(1, 201)]
+    lines[10] = "    self._cooldowns = {}  # provider cooldown"
+    lines[149] = "    self._cooldowns[name] = time.monotonic() + 1800  # provider cooldown"
+
+    snippet, cut = cidx.keyword_windows("\n".join(lines), ["provider", "cooldown"], 2800)
+
+    assert "+ 1800" in snippet and "= {}" in snippet
+    assert cut is False
+    assert snippet.count("\n") < 20
+
+
+def test_best_lines_come_first_when_the_budget_is_short():
+    lines = [f"filler {i}" for i in range(1, 400)]
+    lines[5] = "rare rare token_a token_b"
+    lines[300] = "rare rare token_a"
+    snippet, cut = cidx.keyword_windows("\n".join(lines), ["token_a", "token_b"], 200)
+
+    # One window fits: the best line (both keywords), not the later one.
+    assert "token_b" in snippet
+    assert "301| " not in snippet
+    assert cut is True
+
+
+def test_snippet_lines_are_in_file_order():
+    lines = [f"filler {i}" for i in range(1, 300)]
+    lines[250] = "needle one"
+    lines[20] = "needle two"
+    snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 3000)
+    numbers = [int(row.split("|")[0]) for row in snippet.splitlines() if "|" in row]
+
+    assert numbers == sorted(numbers)
+
+
+def test_prompt_says_to_read_the_file_instead_of_writing_not_shown():
+    prompt = build_prompt(
+        [], None, [SimpleNamespace(role="user", content="explain how the provider cooldown works")],
+        [], False, False, tracked_repos=[REPO],
+    )
+
+    assert "never write that something is 'not shown'" in prompt

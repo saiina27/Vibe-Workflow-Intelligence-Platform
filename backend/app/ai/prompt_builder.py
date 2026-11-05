@@ -367,7 +367,7 @@ def _tracked_repos_section(tracked_repos) -> str:
         "search_repositories first. If several are listed, use the one "
         "the user names and ask only if it is unclear. For a question "
         "about how something in their project works, search and read "
-        "their code: first call find_in_code with keywords to find the file and line, then answer from the code snippets it returns, and call get_file_contents only if they do not show what you need (search_code is unreliable). If the question "
+        "their code: first call find_in_code with keywords to find the file and line, then answer from the code snippets it returns, and call get_file_contents if they do not show what you need, for example how a value is set; never write that something is 'not shown' when you can read it (search_code is unreliable). If the question "
         "is a general concept that is not about their project, answer "
         "it directly without tools.\n\n"
     )

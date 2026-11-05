@@ -806,7 +806,8 @@ def workspace_index_counts(db: Session, workspace_id: int) -> dict:
 # ------------------------------------------------------------
 
 SNIPPET_CONTEXT = 3
-FIRST_FILE_CHARS = 2800
+FIRST_FILE_CHARS = 3200
+MIN_SCORE_SHARE = 0.25
 SECOND_FILE_CHARS = 1200
 GENERIC_SHARE = 0.2
 
@@ -819,10 +820,11 @@ def keyword_windows(
     context: int = SNIPPET_CONTEXT,
 ) -> tuple[str, bool]:
     """
-    Numbered lines around the lines that mention the most specific
-    keywords of a file. A keyword that is on a large share of the lines
-    (like "provider" in a provider router) is ignored. Returns
-    (snippet, truncated).
+    Numbered lines around the lines that match the most specific
+    keywords. A keyword found on few lines weighs more than one found on
+    many (so "cooldown" beats "provider" in a provider router). The best
+    lines and their surroundings are taken first, until the budget is
+    used, and shown in file order. Returns (snippet, truncated).
     """
 
     lines = text.splitlines()
@@ -832,59 +834,65 @@ def keyword_windows(
         return "", False
 
     lowered = [line.lower() for line in lines]
-    hits = {t: [i for i, line in enumerate(lowered) if t in line] for t in tokens}
-    present = {t: idx for t, idx in hits.items() if idx}
+    rows = [f"{i + 1}| {line[:160]}" for i, line in enumerate(lines)]
 
-    chosen: dict = {}
+    frequency = {t: sum(1 for line in lowered if t in line) for t in tokens}
+    weights = {t: 1.0 / n for t, n in frequency.items() if n}
 
-    if present:
-        limit = max(6, int(total * GENERIC_SHARE))
-        chosen = {t: idx for t, idx in present.items() if len(idx) <= limit}
+    scored = []
 
-        if not chosen:
-            rarest = min(present, key=lambda t: len(present[t]))
-            chosen = {rarest: present[rarest]}
+    for i, line in enumerate(lowered):
+        score = sum(w for t, w in weights.items() if t in line)
 
-    hit_lines = sorted({i for idx in chosen.values() for i in idx})
+        if score > 0:
+            scored.append((score, i))
 
-    ranges: list = []
+    included: set[int] = set()
+    used = 0
+    truncated = False
 
-    if hit_lines:
-        for i in hit_lines:
+    if scored:
+        best = max(score for score, _ in scored)
+        candidates = sorted(
+            (item for item in scored if item[0] >= best * MIN_SCORE_SHARE),
+            key=lambda item: (-item[0], item[1]),
+        )
+
+        for _score, i in candidates:
             a = max(0, i - context)
             b = min(total - 1, i + context)
+            new = [j for j in range(a, b + 1) if j not in included]
+            cost = sum(len(rows[j]) + 1 for j in new)
 
-            if ranges and a <= ranges[-1][1] + 1:
-                ranges[-1][1] = max(ranges[-1][1], b)
-            else:
-                ranges.append([a, b])
+            if used + cost > max_chars:
+                truncated = True
+                continue
+
+            included.update(new)
+            used += cost
 
     elif fallback_line:
         a = max(0, fallback_line - 2)
-        ranges = [[a, min(total - 1, fallback_line + 28)]]
+
+        for j in range(a, min(total - 1, fallback_line + 28) + 1):
+            if used + len(rows[j]) + 1 > max_chars:
+                truncated = True
+                break
+
+            included.add(j)
+            used += len(rows[j]) + 1
 
     else:
         return "", False
 
     out: list[str] = []
-    used = 0
-    truncated = False
+    previous = None
 
-    for index, (a, b) in enumerate(ranges):
-        if index > 0:
+    for j in sorted(included):
+        if previous is not None and j != previous + 1:
             out.append("...")
 
-        for i in range(a, b + 1):
-            row = f"{i + 1}| {lines[i][:160]}"
-
-            if used + len(row) + 1 > max_chars:
-                truncated = True
-                break
-
-            out.append(row)
-            used += len(row) + 1
-
-        if truncated:
-            break
+        out.append(rows[j])
+        previous = j
 
     return "\n".join(out), truncated
