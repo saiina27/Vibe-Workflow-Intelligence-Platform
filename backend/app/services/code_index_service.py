@@ -812,6 +812,61 @@ SECOND_FILE_CHARS = 1200
 GENERIC_SHARE = 0.2
 
 
+TRACE_SHARE = 0.5
+TRACE_BUDGET = 900
+TRACE_LOOKBACK = 30
+TRACE_CONTEXT = 2
+MAX_TRACED_IDENTS = 3
+
+TRACE_SKIP = {
+    "self", "cls", "none", "true", "false", "return", "print", "time",
+    "monotonic", "len", "str", "int", "dict", "list", "set", "for", "not",
+    "and", "the", "else", "elif", "def", "class", "import", "from", "with",
+    "try", "except", "raise", "pass", "await", "async", "lambda", "yield",
+    "while", "break", "continue", "isinstance", "getattr", "super", "range",
+}
+
+
+def _traced_assignments(lines, i, token_set):
+    """Lines shortly above line i that assign a variable line i uses
+    (for example `seconds = 1800` above `... + seconds`)."""
+
+    idents = []
+
+    for word in re.findall(r"[A-Za-z_]\w*", lines[i]):
+        low = word.lower()
+
+        if (
+            len(word) >= 3
+            and low not in TRACE_SKIP
+            and low not in token_set
+            and word not in idents
+        ):
+            idents.append(word)
+
+    found = []
+    traced = 0
+
+    for ident in idents:
+        pattern = re.compile(rf"^\s*{re.escape(ident)}\s*(?::[^=]+)?=(?!=)")
+        hits = [
+            j
+            for j in range(max(0, i - TRACE_LOOKBACK), i)
+            if pattern.match(lines[j])
+        ]
+
+        if not hits:
+            continue
+
+        found.extend(hits[-4:])
+        traced += 1
+
+        if traced == MAX_TRACED_IDENTS:
+            break
+
+    return sorted(set(found))
+
+
 def keyword_windows(
     text: str,
     tokens: list[str],
@@ -822,9 +877,11 @@ def keyword_windows(
     """
     Numbered lines around the lines that match the most specific
     keywords. A keyword found on few lines weighs more than one found on
-    many (so "cooldown" beats "provider" in a provider router). The best
-    lines and their surroundings are taken first, until the budget is
-    used, and shown in file order. Returns (snippet, truncated).
+    many (so "cooldown" beats "provider" in a provider router).
+    Order of use of the budget: the variables assigned above the best
+    lines (a small reserved share), then the best lines with their
+    surroundings, then the rest. Output is in file order.
+    Returns (snippet, truncated).
     """
 
     lines = text.splitlines()
@@ -851,6 +908,23 @@ def keyword_windows(
     used = 0
     truncated = False
 
+    def add(a: int, b: int, limit: int) -> bool:
+        nonlocal used, truncated
+
+        a = max(0, a)
+        b = min(total - 1, b)
+        new = [j for j in range(a, b + 1) if j not in included]
+        cost = sum(len(rows[j]) + 1 for j in new)
+
+        if used + cost > limit:
+            truncated = True
+            return False
+
+        included.update(new)
+        used += cost
+
+        return True
+
     if scored:
         best = max(score for score, _ in scored)
         candidates = sorted(
@@ -858,29 +932,28 @@ def keyword_windows(
             key=lambda item: (-item[0], item[1]),
         )
 
-        for _score, i in candidates:
-            a = max(0, i - context)
-            b = min(total - 1, i + context)
-            new = [j for j in range(a, b + 1) if j not in included]
-            cost = sum(len(rows[j]) + 1 for j in new)
+        primary = [i for score, i in candidates if score >= best * TRACE_SHARE]
+        rest = [i for score, i in candidates if score < best * TRACE_SHARE]
+        token_set = {t.lower() for t in tokens}
+        trace_limit = min(max_chars, TRACE_BUDGET)
 
-            if used + cost > max_chars:
-                truncated = True
-                continue
+        for i in primary:
+            traced = _traced_assignments(lines, i, token_set)
 
-            included.update(new)
-            used += cost
+            if traced and add(i, i, trace_limit):
+                for j in traced:
+                    add(j - TRACE_CONTEXT, j + TRACE_CONTEXT, trace_limit)
+
+        for i in primary:
+            add(i - context, i + context, max_chars)
+
+        for i in rest:
+            add(i - context, i + context, max_chars)
 
     elif fallback_line:
-        a = max(0, fallback_line - 2)
-
-        for j in range(a, min(total - 1, fallback_line + 28) + 1):
-            if used + len(rows[j]) + 1 > max_chars:
-                truncated = True
+        for j in range(max(0, fallback_line - 2), min(total - 1, fallback_line + 28) + 1):
+            if not add(j, j, max_chars):
                 break
-
-            included.add(j)
-            used += len(rows[j]) + 1
 
     else:
         return "", False

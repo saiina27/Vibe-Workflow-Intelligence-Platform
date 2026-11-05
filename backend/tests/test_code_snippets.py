@@ -274,3 +274,53 @@ def test_prompt_says_to_read_the_file_instead_of_writing_not_shown():
     )
 
     assert "never write that something is 'not shown'" in prompt
+
+
+# ---------------- tracing the variables a matched line uses ----------------
+
+def test_the_values_assigned_above_a_matched_line_are_included():
+    filler = [f"    provider_step_{i}()  # provider" for i in range(1, 60)]
+    body = [
+        "    def _record_failure(self, name, error):",
+        "        message = str(error).lower()",
+        '        if "429" in message or "quota" in message:',
+        "            seconds = 1800",
+        '        elif "503" in message:',
+        "            seconds = 120",
+        "        else:",
+        "            return",
+        "        self._cooldowns[name] = time.monotonic() + seconds  # cooldown",
+    ]
+    snippet, _ = cidx.keyword_windows(
+        "\n".join(filler + body + filler), ["provider", "cooldown"], 3200
+    )
+
+    assert "seconds = 1800" in snippet and "seconds = 120" in snippet
+    assert '"429" in message' in snippet
+
+
+def test_assignments_far_above_are_not_traced():
+    lines = ["limit_value = 1"] + [f"filler {i}" for i in range(80)]
+    lines.append("run(limit_value)  # needle")
+    snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 3200)
+
+    assert "limit_value = 1" not in snippet
+    assert "needle" in snippet
+
+
+def test_comparisons_are_not_mistaken_for_assignments():
+    lines = ["if retries == 3:", "    pass", "use(retries)  # needle"]
+    snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 3200)
+
+    assert "needle" in snippet
+
+
+def test_tracing_stays_inside_its_small_budget():
+    block = []
+
+    for i in range(40):
+        block += [f"value_{i} = {'x' * 100}", f"use(value_{i})  # needle"]
+
+    snippet, cut = cidx.keyword_windows("\n".join(block), ["needle"], 3200)
+
+    assert len(snippet) <= 3200
