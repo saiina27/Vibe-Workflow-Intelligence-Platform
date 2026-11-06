@@ -7,6 +7,7 @@ import {
   getTrackedRepos,
   removeTrackedRepo,
   getCodeIndexStatus,
+  getDigest,
   runCodeIndex,
   syncDevEvents,
   type CodeIndexStatus,
@@ -63,6 +64,9 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
   const [loadingGithub, setLoadingGithub] = useState(false)
   const [syncing, setSyncing] = useState(false)
   const [indexing, setIndexing] = useState(false)
+  const [digestDays, setDigestDays] = useState(7)
+  const [digestText, setDigestText] = useState('')
+  const [digestLoading, setDigestLoading] = useState(false)
   const [indexStatus, setIndexStatus] = useState<CodeIndexStatus[]>([])
 
   const [message, setMessage] = useState('')
@@ -201,6 +205,32 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
       setError(errorText(e, 'Indexing failed'))
     } finally {
       setIndexing(false)
+    }
+  }
+
+  async function handleDigest() {
+    if (digestLoading) return
+
+    try {
+      setDigestLoading(true)
+      setError('')
+      setMessage('')
+
+      const result = await getDigest(workspaceId, digestDays)
+      setDigestText(result.markdown)
+    } catch (e) {
+      setError(errorText(e, 'Could not build the digest'))
+    } finally {
+      setDigestLoading(false)
+    }
+  }
+
+  async function handleCopyDigest() {
+    try {
+      await navigator.clipboard.writeText(digestText)
+      setMessage('Digest copied.')
+    } catch {
+      setError('Copy failed. Select the text and copy it by hand.')
     }
   }
 
@@ -387,6 +417,53 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
               </button>
             </div>
           ))}
+        </section>
+
+        <section className="activity-section">
+          <h4>Digest</h4>
+          <p className="activity-muted">
+            A summary of your commits, pull requests, decisions and chats,
+            built from saved data. No AI is used, so it costs no quota.
+          </p>
+
+          <div className="activity-row">
+            <select
+              className="activity-input"
+              value={digestDays}
+              onChange={(e) => setDigestDays(Number(e.target.value))}
+            >
+              <option value={1}>Today</option>
+              <option value={7}>Last 7 days</option>
+              <option value={30}>Last 30 days</option>
+            </select>
+
+            <button
+              type="button"
+              className="activity-button"
+              onClick={handleDigest}
+              disabled={digestLoading}
+            >
+              {digestLoading ? 'Building…' : 'Build digest'}
+            </button>
+
+            {digestText && (
+              <button
+                type="button"
+                className="activity-button secondary"
+                onClick={handleCopyDigest}
+              >
+                Copy
+              </button>
+            )}
+          </div>
+
+          {digestText && (
+            <textarea
+              className="activity-digest"
+              readOnly
+              value={digestText}
+            />
+          )}
         </section>
 
         <section className="activity-section">

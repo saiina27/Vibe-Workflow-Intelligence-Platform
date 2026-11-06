@@ -13,6 +13,7 @@ from app.dependencies.auth import get_current_user
 from app.dependencies.database import get_db
 from app.mcp.runtime import mcp_integration_manager, mcp_permission_service
 from app.services import code_index_service as cidx
+from app.services import digest_service
 from app.services import dev_events_service as svc
 from app.services.external_integration_service import get_user_integration
 from app.services.workspace_service import require_workspace_access
@@ -280,3 +281,17 @@ async def code_index_run(
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=502, detail=str(exc)[:200])
+
+
+@router.get("/digest")
+def get_digest(
+    workspace_id: int,
+    days: int = 7,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """A copy-ready summary of the period, built from saved data only."""
+
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    return digest_service.build_digest(db, workspace_id, days)

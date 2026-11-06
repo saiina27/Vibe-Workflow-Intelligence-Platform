@@ -795,3 +795,31 @@ export async function runCodeIndex(
     { method: 'POST' },
   )
 }
+
+
+/* =========================
+DIGEST
+========================= */
+
+export interface DigestResult {
+  markdown: string
+  counts: {
+    commits: number
+    pull_requests: number
+    decisions: number
+    chats: number
+    questions: number
+  }
+  days: number
+  synced_through: string | null
+  notes: string[]
+}
+
+export async function getDigest(
+  workspaceId: number,
+  days: number,
+): Promise<DigestResult> {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/digest?days=${days}`,
+  )
+}
