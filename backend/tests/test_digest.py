@@ -251,3 +251,41 @@ def test_a_huge_digest_is_cut_at_the_cap_with_a_note(monkeypatch):
 
     assert len(text) <= 800 + 120
     assert "Digest shortened" in text
+
+
+def test_chats_with_the_same_title_are_shown_as_one_line():
+    rows = [
+        (1, datetime(2026, 11, 3, 5, 0)),
+        (2, datetime(2026, 11, 3, 6, 0)),
+        (2, datetime(2026, 11, 3, 7, 0)),
+        (3, datetime(2026, 11, 3, 8, 0)),
+    ]
+    chats = {
+        1: ("Viewing commits", "DevOps"),
+        2: ("Viewing  commits", "DevOps"),
+        3: ("Other chat", None),
+    }
+    data, text = build(rows=rows, chats=chats)
+
+    assert data["counts"]["chats"] == 3
+    assert "**Chats (3)**" in text
+    assert "- Viewing commits [DevOps]: 2 chats, 3 questions" in text
+    assert "- Other chat: 1 question" in text
+    assert text.index("Viewing commits") < text.index("Other chat")
+
+
+def test_the_most_common_topic_of_the_group_is_shown():
+    rows = [(i, datetime(2026, 11, 3, 5, i)) for i in (1, 2, 3)]
+    chats = {1: ("Same", "General"), 2: ("Same", "DevOps"), 3: ("same", "DevOps")}
+    _, text = build(rows=rows, chats=chats)
+
+    assert "- Same [DevOps]: 3 chats, 3 questions" in text
+
+
+def test_grouped_chat_lines_are_capped_with_a_count_of_the_rest():
+    rows = [(i, datetime(2026, 11, 3, 5, 0)) for i in range(1, 11)]
+    chats = {i: (f"Chat number {i}", None) for i in range(1, 11)}
+    _, text = build(rows=rows, chats=chats)
+
+    assert "**Chats (10)**" in text
+    assert f"- ...and {10 - ds.MAX_CHATS_PER_DAY} more" in text

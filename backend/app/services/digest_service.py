@@ -239,6 +239,41 @@ def _clip(text, limit: int) -> str:
     return text if len(text) <= limit else text[: limit - 3].rstrip() + "..."
 
 
+def _group_chats(chats, info) -> list:
+    """Chats with the same title are shown as one line:
+    (title, topic, number of chats, number of questions)."""
+
+    groups: dict = {}
+
+    for chat_id, questions in chats:
+        title, topic = info.get(chat_id, ("Chat", None))
+        title = " ".join(str(title or "Chat").split())
+        group = groups.setdefault(
+            title.lower(),
+            {"title": title, "topics": {}, "chats": 0, "questions": 0},
+        )
+
+        group["chats"] += 1
+        group["questions"] += questions
+
+        if topic:
+            group["topics"][topic] = group["topics"].get(topic, 0) + 1
+
+    rows = []
+
+    for group in groups.values():
+        topic = (
+            max(group["topics"], key=lambda t: (group["topics"][t], t))
+            if group["topics"]
+            else None
+        )
+        rows.append((group["title"], topic, group["chats"], group["questions"]))
+
+    rows.sort(key=lambda r: (-r[3], r[0]))
+
+    return rows
+
+
 def render_markdown(data: dict) -> str:
     first, last, counts = data["first"], data["last"], data["counts"]
 
@@ -328,13 +363,17 @@ def render_markdown(data: dict) -> str:
         if chats:
             out += ["", f"**Chats ({len(chats)})**"]
 
-            for chat_id, n in chats[:MAX_CHATS_PER_DAY]:
-                title, topic = data["chats"].get(chat_id, ("Chat", None))
-                topic_text = f" [{topic}]" if topic else ""
-                out.append(f"- {_clip(title, 80)}{topic_text}: {_plural(n, 'question')}")
+            groups = _group_chats(chats, data["chats"])
 
-            if len(chats) > MAX_CHATS_PER_DAY:
-                out.append(f"- ...and {len(chats) - MAX_CHATS_PER_DAY} more")
+            for title, topic, chat_count, questions in groups[:MAX_CHATS_PER_DAY]:
+                topic_text = f" [{topic}]" if topic else ""
+                size = f"{_plural(chat_count, 'chat')}, " if chat_count > 1 else ""
+                out.append(
+                    f"- {_clip(title, 80)}{topic_text}: {size}{_plural(questions, 'question')}"
+                )
+
+            if len(groups) > MAX_CHATS_PER_DAY:
+                out.append(f"- ...and {len(groups) - MAX_CHATS_PER_DAY} more")
 
     text = "\n".join(out)
 
