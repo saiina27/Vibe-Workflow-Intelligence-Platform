@@ -2,7 +2,7 @@
 
 Vibe is a production-style AI backend built with FastAPI and PostgreSQL. It evolved from a persistent conversational AI into a tool-using, context-aware developer assistant with long-term memory, RAG, multi-provider LLM routing, and an MCP-standard integration layer for GitHub and Slack.
 
-**Current milestone: Sprint 15a — Developer Intelligence layer (history, decision memory, code index) on top of Sprint 12 MCP ✅**
+**Current milestone: Sprint 18 — Developer Intelligence layer, security limits, free-tier efficiency and the weekly digest, on top of Sprint 12 MCP ✅**
 
 🔗 **Live demo:** https://vibe-workflow-intelligence-platform.vercel.app (React frontend on Vercel, FastAPI backend on Render)
 
@@ -191,7 +191,7 @@ Engineering notes:
 - Groq free-tier limits: per-minute 429s are retried using the server's own wait hint, and only the last 8 messages go into the prompt.
 - Answers use tables for commits/branches/issues/PRs/repos and state only what tools returned.
 
-## 🧭 Developer Intelligence Layer (Sprints 13–15a)
+## 🧭 Developer Intelligence Layer (Sprints 13–15b)
 
 Built on top of the existing tool-calling and MCP layers, without rebuilding them.
 
@@ -210,7 +210,7 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 |---|---|
 | `search_chats` | Searches earlier chats of the workspace by keywords and IST dates |
 | `search_history` | Searches saved commits and pull requests by date, keywords, type or repository |
-| `find_in_code` | Finds where something is implemented, from the symbol index (`path:line`), then the model reads the file with `get_file_contents` |
+| `find_in_code` | Finds where something is implemented from the symbol index, and returns the matching lines of the best two files (windows chosen by keyword rarity, with the assignments behind the variables used on those lines). File text is cached per sha |
 | `search_memory` | Now accepts an optional `memory_type` (for example `decision`) |
 
 **New API routes** (all under `/workspaces/{workspace_id}`, protected by workspace ownership checks)
@@ -221,6 +221,7 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 | `GET /github/repos` | Repositories of the connected GitHub account (for the dropdown) |
 | `POST /dev-events/sync`, `GET /dev-events` | Sync and list saved history |
 | `GET /code-index/status`, `POST /code-index/run?repo=&scan=` | Code index progress and one 40-second batch |
+| `GET /digest?days=` | Copy-ready summary of the period (IST days) built from saved commits, pull requests, decisions and chats. No LLM call |
 
 **How it works**
 
@@ -236,6 +237,43 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 - **Tracked repositories in the prompt.** With a tracked repository, the model skips the `get_me` and `search_repositories` rounds.
 - **Provider cooldown.** After a 429 or quota error a provider is skipped for 30 minutes, after a 503 for 2 minutes, and the fallback provider is used instead.
 - **413 handling.** A "request too large" error from the provider ends the stream with a clear message instead of a raw error.
+
+## ⚡ Security, efficiency and reliability (Sprints 17–18)
+
+**Security limits** (in memory, per process; no Redis because there is one instance)
+
+| Limit | Default | Environment variable |
+|---|---|---|
+| AI questions per user per minute | 4 | `RATE_LIMIT_PER_MINUTE` |
+| AI questions per user per day (IST) | 15 | `RATE_LIMIT_PER_DAY` |
+| AI questions for everyone per day | 40 | `RATE_LIMIT_GLOBAL_PER_DAY` |
+| Users that are never limited | none | `RATE_LIMIT_EXEMPT_USER_IDS` |
+| Wrong passwords per IP per 10 minutes | 10 | `LOGIN_FAILURES_PER_10MIN` |
+| Sign-ups per IP per hour / for everyone per day | 5 / 30 | `SIGNUPS_PER_IP_PER_HOUR`, `SIGNUPS_PER_DAY` |
+
+A value of `0` turns a limit off. Other protections: password rules at sign-up (8 to 72 bytes), an equal-time login check, a malformed token subject returns 401, CORS origins are trimmed, and an access token lives 30 minutes (`ACCESS_TOKEN_EXPIRE_MINUTES`).
+
+**Prompt-injection guard.** Every tool result is marked as external data. Results that contain high-confidence injection phrases get an extra warning, and the system prompt tells the model never to follow instructions found inside tool results. The real protection is that every tool is read-only.
+
+**Golden routing tests.** `tests/test_golden_routing.py` holds 17 questions with the tools and prompt sections each must get. It runs offline with every pytest run.
+
+**Request pipeline**
+
+- Title, topic and memory extraction start together when a message arrives, run while the answer is written, and have timeouts. The memory extraction call is skipped for messages that only ask or order something.
+- Memory and knowledge retrieval were removed from the streaming path because the prompt never used the result (the model calls the tools itself).
+- GitHub and Slack MCP servers are connected only when the latest question can use them (`ToolRegistry.mcp_needs`). GitHub is also warmed up in the background after the page loads. Tool lists are cached for 10 minutes per connection.
+
+**Token budget (Groq free tier)**
+
+- Prompt gating: capability table, GitHub/Slack rules and decision rules are added only when needed.
+- MCP results are parsed and reduced to short rows (commit, issue, pull request, changed file) with a row count; lists are cut at whole rows. MCP tool descriptions are shortened and the `fields` parameter is hidden from the model.
+- Assistant answers older than the last two messages are shortened in the history.
+- Optional `GROQ_REASONING_EFFORT=low` makes gpt-oss models think less.
+- Optional `GROQ_MODEL_POOL=openai/gpt-oss-120b` lets every Groq call go to the model with enough budget. The budget comes from Groq's rate-limit response headers, helper calls prefer the pool, and a model that hits its daily limit is skipped for one hour. When the next model has room, the SDK's own retry is switched off so a full model fails over at once.
+
+**MCP resilience.** A dead client is closed and replaced (one connect at a time). A failed connect gets one retry. A read-only MCP tool call that returns the hosted server's generic error is retried once; write tools and native tools are never retried. If a GitHub question cannot get any GitHub tool, the user gets a clear message instead of a search of the web.
+
+**Weekly digest.** `GET /workspaces/{id}/digest?days=` reads `dev_events`, decision memories, chats and the last sync time, groups them by IST day, and writes markdown. Chats with the same title are shown as one line. A failing section is named in a note and the rest still works.
 
 ## 🧩 Project Structure
 
@@ -304,7 +342,7 @@ All non-auth routes are protected via a `get_current_user` JWT dependency.
 
 ## 🧪 Testing
 
-The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **375 automated pytest test cases** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
+The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **643 automated pytest test cases** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
 
 ```bash
 pytest -q
@@ -447,10 +485,11 @@ Vibe evolved from a basic AI chat backend into a context-aware system combining 
 - **GitHub is read-only by design.** Vibe never creates issues, PRs or commits; it says so instead of offering to.
 - **No CI / checks data.** Questions like "why did my PR fail?" are not supported, because no such tool is exposed.
 - **Long tool results are shortened** (3,000 characters) before going to the model, after noise such as avatar URLs and emails is removed. Vibe tells the user when a list or file was cut.
-- **Free-tier LLM limits.** Groq allows 8,000 tokens per minute and 200,000 per day, and Gemini's free tier allows about 20 requests per day, so tool-calling traffic mostly runs on Groq. Per-minute 429s are retried; daily limits are not. A provider that returns 429 or 503 is skipped for a while (cooldown).
-- **Slack** has the `search:read` scope only. It is connected and tested live (public search and channel search); Slack history is not synced into `dev_events`.
-- **Code index** covers Python files only (names and line numbers, not code). Reading a file shows only its first part because of the 3,000 character limit.
+- **Free-tier LLM limits.** Groq allows 8,000 tokens per minute and 200,000 per day per model, and Gemini's free tier allows about 20 requests per day. Two models give two budgets, but one heavy question can use most of a minute's budget, so a second one asked straight away may wait up to about 20 seconds.
+- **Slack** has the `search:read` scope only. It is connected and tested live; Slack history is not synced into `dev_events` and is not part of the digest.
+- **Code index** covers Python files only (names and line numbers, not code). `find_in_code` shows only the lines that match the keywords of the question, so a detail that does not contain those words can be missing; the model then reads the file.
 - **History is synced on demand** ("Sync now" or `POST /dev-events/sync`), not by webhooks. Only commits and pull requests are stored.
+- **Rate-limit counters live in memory.** They reset when the server restarts and are not shared between instances.
 
 ## 🚧 Future Extensions
 
