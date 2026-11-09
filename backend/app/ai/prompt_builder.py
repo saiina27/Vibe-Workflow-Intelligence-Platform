@@ -277,6 +277,14 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   implemented. If you have not read the code, say so first, then give
   only what the notes say, and label any general explanation as
   "General idea, not from your code".
+- CODE IMPROVEMENT: if the user asks what could be improved, refactored,
+  optimized or reviewed in their own code, first read the relevant code
+  (find_in_code, then get_file_contents if it does not show enough). Give
+  at most 4 suggestions, best first. For each: the file and line, what to
+  change and why. Add a small "Suggested change (not applied)" snippet
+  only when it helps. Say clearly that these are suggestions: Vibe cannot
+  change code, and the user reviews and applies them. Suggest only what
+  the code you read supports; if you have not read the code, say so first.
 
 """
 
@@ -425,6 +433,9 @@ DECISION_WORDS = {
     "decide", "decided", "decision", "decisions", "why", "explain",
     "samjhao", "samjha", "samjhana", "kyun", "kyu", "reason", "chose",
     "chosen", "choose", "alternative", "alternatives", "tay", "rakha",
+    "improve", "improved", "improving", "improvement", "improvements",
+    "refactor", "refactoring", "optimize", "optimise", "optimized",
+    "optimization", "cleanup", "review",
 }
 
 

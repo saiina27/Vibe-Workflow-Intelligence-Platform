@@ -46,6 +46,9 @@ CODE_EXPLAIN_WORDS = {
     "works", "work", "working", "implemented", "implementation",
     "internals", "logic", "function", "functions", "class", "module",
     "architecture", "flow",
+    "improve", "improved", "improving", "improvement", "improvements",
+    "refactor", "refactoring", "optimize", "optimise", "optimized",
+    "optimization", "cleanup", "review",
 }
 
 # Max tools exposed to the model per request (Groq token budget).
