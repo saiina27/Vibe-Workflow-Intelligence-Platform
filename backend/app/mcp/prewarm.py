@@ -44,11 +44,13 @@ def warm_github(user_id: int) -> None:
 
         db = SessionLocal()
 
+        registry = ToolRegistry()
+
         asyncio.run(
             mcp_integration_manager.connect_github(
                 db=db,
                 user_id=user_id,
-                registry=ToolRegistry(),
+                registry=registry,
             )
         )
 
@@ -56,6 +58,21 @@ def warm_github(user_id: int) -> None:
             f"🔥 GitHub MCP warmed up in "
             f"{(time.perf_counter() - started) * 1000:.0f} ms"
         )
+
+        # Saved history older than AUTO_SYNC_HOURS (default 6) is refreshed
+        # now, so "what changed?" questions and the digest are current.
+        try:
+            from app.services.auto_sync_service import run_auto_sync
+
+            run_auto_sync(db, user_id, registry)
+
+        except Exception as exc:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+            print(f"🔄 Auto-sync skipped: {exc}")
 
     except Exception as exc:
         with _LOCK:
