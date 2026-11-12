@@ -7,11 +7,17 @@ import {
   getTrackedRepos,
   removeTrackedRepo,
   getCodeIndexStatus,
+  addSlackTerm,
+  clearSlackEvents,
   getDigest,
+  getSlackTerms,
+  removeSlackTerm,
   runCodeIndex,
+  syncSlack,
   syncDevEvents,
   type CodeIndexStatus,
   type DevEvent,
+  type SlackTerm,
   type TrackedRepo,
 } from '../api/client'
 
@@ -67,6 +73,9 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
   const [digestDays, setDigestDays] = useState(7)
   const [digestText, setDigestText] = useState('')
   const [digestLoading, setDigestLoading] = useState(false)
+  const [slackTerms, setSlackTerms] = useState<SlackTerm[]>([])
+  const [slackInput, setSlackInput] = useState('')
+  const [slackSyncing, setSlackSyncing] = useState(false)
   const [indexStatus, setIndexStatus] = useState<CodeIndexStatus[]>([])
 
   const [message, setMessage] = useState('')
@@ -112,6 +121,18 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
   useEffect(() => {
     loadIndexStatus()
   }, [loadIndexStatus, repos.length])
+
+  const loadSlackTerms = useCallback(async () => {
+    try {
+      setSlackTerms(await getSlackTerms(workspaceId))
+    } catch {
+      setSlackTerms([])
+    }
+  }, [workspaceId])
+
+  useEffect(() => {
+    loadSlackTerms()
+  }, [loadSlackTerms])
 
   useEffect(() => {
     loadEvents()
@@ -205,6 +226,79 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
       setError(errorText(e, 'Indexing failed'))
     } finally {
       setIndexing(false)
+    }
+  }
+
+  async function handleAddSlackTerm() {
+    const term = slackInput.trim()
+
+    if (!term) return
+
+    try {
+      setError('')
+      setMessage('')
+      await addSlackTerm(workspaceId, term)
+      setSlackInput('')
+      await loadSlackTerms()
+      setMessage(`Added "${term}". Press Sync Slack to look for it.`)
+    } catch (e) {
+      setError(errorText(e, 'Could not add the watch word'))
+    }
+  }
+
+  async function handleRemoveSlackTerm(term: SlackTerm) {
+    try {
+      setError('')
+      await removeSlackTerm(workspaceId, term.id)
+      await loadSlackTerms()
+    } catch (e) {
+      setError(errorText(e, 'Could not remove the watch word'))
+    }
+  }
+
+  async function handleSyncSlack() {
+    if (slackSyncing) return
+
+    try {
+      setSlackSyncing(true)
+      setError('')
+      setMessage('')
+
+      const { results } = await syncSlack(workspaceId)
+
+      setMessage(
+        results
+          .map((r) =>
+            r.error
+              ? `${r.term}: ${r.error}`
+              : `${r.term}: ${r.events ?? 0} messages (${r.new ?? 0} new)`,
+          )
+          .join(' | '),
+      )
+
+      await loadSlackTerms()
+      await loadEvents()
+    } catch (e) {
+      setError(errorText(e, 'Slack sync failed'))
+    } finally {
+      setSlackSyncing(false)
+    }
+  }
+
+  async function handleClearSlack() {
+    const ok = window.confirm(
+      'Remove all saved Slack messages from Vibe? Nothing changes in Slack.',
+    )
+
+    if (!ok) return
+
+    try {
+      setError('')
+      const { deleted } = await clearSlackEvents(workspaceId)
+      setMessage(`Removed ${deleted} saved Slack messages.`)
+      await loadEvents()
+    } catch (e) {
+      setError(errorText(e, 'Could not clear Slack messages'))
     }
   }
 
@@ -420,6 +514,68 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
         </section>
 
         <section className="activity-section">
+          <h4>Slack watch words</h4>
+          <p className="activity-muted">
+            Slack can only be searched by word. Add words such as deploy or
+            decided. Sync Slack saves the first 160 characters of each
+            matching message with its link. Nothing is posted to Slack.
+          </p>
+
+          <ul className="activity-repos">
+            {slackTerms.map((term) => (
+              <li key={term.id}>
+                <span>{term.term}</span>
+                <button
+                  type="button"
+                  className="activity-link-button"
+                  onClick={() => handleRemoveSlackTerm(term)}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+
+          <div className="activity-row">
+            <input
+              className="activity-input"
+              value={slackInput}
+              placeholder="add a watch word"
+              onChange={(e) => setSlackInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddSlackTerm()
+              }}
+            />
+            <button
+              type="button"
+              className="activity-button secondary"
+              onClick={handleAddSlackTerm}
+              disabled={!slackInput.trim()}
+            >
+              Add
+            </button>
+          </div>
+
+          <div className="activity-row">
+            <button
+              type="button"
+              className="activity-button"
+              onClick={handleSyncSlack}
+              disabled={slackSyncing || slackTerms.length === 0}
+            >
+              {slackSyncing ? 'Syncing…' : 'Sync Slack'}
+            </button>
+            <button
+              type="button"
+              className="activity-link-button"
+              onClick={handleClearSlack}
+            >
+              Clear saved Slack messages
+            </button>
+          </div>
+        </section>
+
+        <section className="activity-section">
           <h4>Digest</h4>
           <p className="activity-muted">
             A summary of your commits, pull requests, decisions and chats,
@@ -514,6 +670,7 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
               <option value="">Commits and PRs</option>
               <option value="commit">Commits</option>
               <option value="pull_request">Pull requests</option>
+              <option value="slack_message">Slack messages</option>
             </select>
 
             <select
@@ -552,7 +709,9 @@ function ActivityPanel({ workspaceId, onClose }: Props) {
                       >
                         {item.event_type === 'commit'
                           ? 'Commit'
-                          : `PR${item.detail ? ` · ${item.detail}` : ''}`}
+                          : item.event_type === 'slack_message'
+                            ? 'Slack'
+                            : `PR${item.detail ? ` · ${item.detail}` : ''}`}
                       </span>
 
                       <div className="activity-event-body">

@@ -74,29 +74,38 @@ def compact_schema(node, limit: int = MAX_PARAM_DESCRIPTION):
 HIDDEN_PARAMS = {"fields"}
 
 
-def hide_params(schema):
+# The model fills these optional Slack search parameters with null, which the
+# tool schema rejects (the request then falls back to another call).
+SLACK_HIDDEN_PARAMS = {
+    "content_types", "max_context_length", "context_channel_id",
+    "cursor", "after", "before", "only_my_channels",
+}
+
+
+def hide_params(schema, extra=None):
     if not isinstance(schema, dict):
         return schema
 
+    hidden = HIDDEN_PARAMS | set(extra or ())
     props = schema.get("properties")
 
-    if not isinstance(props, dict) or not (HIDDEN_PARAMS & set(props)):
+    if not isinstance(props, dict) or not (hidden & set(props)):
         return schema
 
     out = dict(schema)
-    out["properties"] = {k: v for k, v in props.items() if k not in HIDDEN_PARAMS}
+    out["properties"] = {k: v for k, v in props.items() if k not in hidden}
 
     required = schema.get("required")
 
     if isinstance(required, list):
-        out["required"] = [r for r in required if r not in HIDDEN_PARAMS]
+        out["required"] = [r for r in required if r not in hidden]
 
     return out
 
 
-def compact_definition(definition: ToolDefinition) -> ToolDefinition:
+def compact_definition(definition: ToolDefinition, extra_hidden=None) -> ToolDefinition:
     return ToolDefinition(
         name=definition.name,
         description=shorten(definition.description, MAX_DESCRIPTION),
-        parameters=compact_schema(hide_params(definition.parameters)),
+        parameters=compact_schema(hide_params(definition.parameters, extra_hidden)),
     )

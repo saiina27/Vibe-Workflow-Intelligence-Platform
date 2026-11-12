@@ -295,3 +295,131 @@ def get_digest(
     require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
 
     return digest_service.build_digest(db, workspace_id, days)
+
+
+# ------------------------------------------------------------
+# Slack watch words (Slack can only be searched by word)
+# ------------------------------------------------------------
+
+from pydantic import BaseModel
+
+from app.services import slack_sync_service as slack_svc
+
+
+class SlackTermCreate(BaseModel):
+    term: str
+
+
+def _term_json(term):
+    return {
+        "id": term.id,
+        "term": term.term,
+        "last_synced_at": term.last_synced_at.isoformat() if term.last_synced_at else None,
+    }
+
+
+@asynccontextmanager
+async def slack_caller(db: Session, workspace_id: int, user_id: int):
+    """call(tool_name, arguments) for the one read-only Slack search tool."""
+
+    if get_user_integration(db=db, user_id=user_id, provider="slack") is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Slack is not connected.",
+        )
+
+    registry = ToolRegistry()
+
+    mcp_permission_service.add_workspace_plugin(workspace_id, "slack")
+
+    await mcp_integration_manager.connect_slack(
+        db=db, user_id=user_id, registry=registry
+    )
+
+    executor = ToolExecutor(
+        registry,
+        ToolContext(db=db, workspace_id=workspace_id, user_id=user_id),
+        mcp_permission_service=mcp_permission_service,
+    )
+
+    def call(tool_name: str, arguments: dict):
+        if tool_name not in slack_svc.ALLOWED_SLACK_SYNC_TOOLS:
+            raise PermissionError(f"Tool '{tool_name}' is not allowed for sync.")
+
+        return executor.execute(tool_name=tool_name, arguments=arguments)
+
+    # The Slack connection is shared with the chat, so it stays open.
+    yield call
+
+
+@router.get("/slack-terms")
+def get_slack_terms(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    return [_term_json(t) for t in slack_svc.list_terms(db, workspace_id)]
+
+
+@router.post("/slack-terms")
+def add_slack_term(
+    workspace_id: int,
+    body: SlackTermCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    try:
+        return _term_json(slack_svc.add_term(db, workspace_id, body.term))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.delete("/slack-terms/{term_id}")
+def remove_slack_term(
+    workspace_id: int,
+    term_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    if not slack_svc.delete_term(db, workspace_id, term_id):
+        raise HTTPException(status_code=404, detail="Watch word not found")
+
+    return {"deleted": True}
+
+
+@router.post("/slack-sync")
+async def sync_slack(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    if not slack_svc.list_terms(db, workspace_id):
+        raise HTTPException(status_code=400, detail="Add a watch word first.")
+
+    async with slack_caller(db, workspace_id, current_user.id) as call:
+        results = await run_in_threadpool(
+            lambda: slack_svc.sync_terms(db, workspace_id, call)
+        )
+
+    return {"results": results}
+
+
+@router.delete("/slack-events")
+def clear_slack_events(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Remove every saved Slack message of this workspace."""
+
+    require_workspace_access(db=db, workspace_id=workspace_id, user_id=current_user.id)
+
+    return {"deleted": slack_svc.delete_slack_events(db, workspace_id)}

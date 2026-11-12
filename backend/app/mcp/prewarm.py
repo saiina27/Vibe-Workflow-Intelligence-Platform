@@ -74,6 +74,20 @@ def warm_github(user_id: int) -> None:
 
             print(f"🔄 Auto-sync skipped: {exc}")
 
+        # Slack watch words whose saved messages are too old.
+        try:
+            from app.services.slack_sync_service import run_slack_auto_sync
+
+            run_slack_auto_sync(db, user_id)
+
+        except Exception as exc:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
+            print(f"💬 Slack auto-sync skipped: {exc}")
+
     except Exception as exc:
         with _LOCK:
             _LAST.pop(user_id, None)

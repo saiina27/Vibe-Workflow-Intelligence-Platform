@@ -548,7 +548,7 @@ class ToolRegistry:
         sent unchanged: their descriptions guide tool choice.
         """
 
-        from app.ai.tools.tool_schema import compact_definition
+        from app.ai.tools.tool_schema import SLACK_HIDDEN_PARAMS, compact_definition
 
         definitions = self._definitions_for_prompt_full(prompt, max_tools)
 
@@ -560,8 +560,13 @@ class ToolRegistry:
             except Exception:
                 tool = None
 
-            if getattr(tool, "plugin_name", None):
-                definition = compact_definition(definition)
+            plugin = getattr(tool, "plugin_name", None)
+
+            if plugin:
+                definition = compact_definition(
+                    definition,
+                    SLACK_HIDDEN_PARAMS if plugin == "slack" else None,
+                )
 
             result.append(definition)
 

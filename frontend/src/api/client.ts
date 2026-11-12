@@ -823,3 +823,63 @@ export async function getDigest(
     `/workspaces/${workspaceId}/digest?days=${days}`,
   )
 }
+
+
+/* =========================
+SLACK WATCH WORDS
+========================= */
+
+export interface SlackTerm {
+  id: number
+  term: string
+  last_synced_at: string | null
+}
+
+export interface SlackSyncResult {
+  term: string
+  events?: number
+  new?: number
+  error?: string
+}
+
+export async function getSlackTerms(
+  workspaceId: number,
+): Promise<SlackTerm[]> {
+  return authenticatedFetch(`/workspaces/${workspaceId}/slack-terms`)
+}
+
+export async function addSlackTerm(
+  workspaceId: number,
+  term: string,
+): Promise<SlackTerm> {
+  return authenticatedFetch(`/workspaces/${workspaceId}/slack-terms`, {
+    method: 'POST',
+    body: JSON.stringify({ term }),
+  })
+}
+
+export async function removeSlackTerm(
+  workspaceId: number,
+  termId: number,
+) {
+  return authenticatedFetch(
+    `/workspaces/${workspaceId}/slack-terms/${termId}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function syncSlack(
+  workspaceId: number,
+): Promise<{ results: SlackSyncResult[] }> {
+  return authenticatedFetch(`/workspaces/${workspaceId}/slack-sync`, {
+    method: 'POST',
+  })
+}
+
+export async function clearSlackEvents(
+  workspaceId: number,
+): Promise<{ deleted: number }> {
+  return authenticatedFetch(`/workspaces/${workspaceId}/slack-events`, {
+    method: 'DELETE',
+  })
+}
