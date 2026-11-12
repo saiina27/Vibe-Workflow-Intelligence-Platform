@@ -81,3 +81,11 @@ def test_the_rule_says_suggest_only():
 
     assert "Vibe cannot\n  change code" in prompt
     assert "at most 4 suggestions" in prompt
+
+
+def test_the_improvement_rule_limits_the_list_and_forbids_new_infrastructure():
+    prompt = prompt_for("how can I improve the router", [REPO])
+
+    assert "a list longer than 4 is wrong" in prompt
+    assert "Do not suggest\n  new infrastructure" in prompt
+    assert "suggestions only and\n  the user applies them" in prompt

@@ -280,11 +280,14 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
 - CODE IMPROVEMENT: if the user asks what could be improved, refactored,
   optimized or reviewed in their own code, first read the relevant code
   (find_in_code, then get_file_contents if it does not show enough). Give
-  at most 4 suggestions, best first. For each: the file and line, what to
+  at most 4 suggestions, best first (a list longer than 4 is wrong). For each: the file and line, what to
   change and why. Add a small "Suggested change (not applied)" snippet
   only when it helps. Say clearly that these are suggestions: Vibe cannot
   change code, and the user reviews and applies them. Suggest only what
-  the code you read supports; if you have not read the code, say so first.
+  the code you read supports; if you have not read the code, say so first. Do not suggest
+  new infrastructure (a database, Redis, a queue) unless the code
+  already uses it. End with one line: these are suggestions only and
+  the user applies them after reviewing.
 
 """
 
