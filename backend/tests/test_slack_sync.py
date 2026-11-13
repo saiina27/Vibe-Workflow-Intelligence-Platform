@@ -408,3 +408,14 @@ def test_slack_optional_parameters_are_hidden_but_github_ones_are_not():
     github = FakeTool("list_commits", "github", ["owner", "repo", "after"])
     defs = definitions("show the latest commits of my repo X", [github])
     assert "after" in defs["list_commits"].parameters["properties"]
+
+
+def test_slack_questions_get_the_short_answer_and_probably_related_rule():
+    def prompt(text):
+        return build_prompt([], None, [SimpleNamespace(role="user", content=text)], [], False, False)
+
+    asked = prompt("what did the team say about deployment on Slack")
+
+    assert "SLACK ANSWERS" in asked
+    assert "probably related, never that one caused the other" in asked
+    assert "SLACK ANSWERS" not in prompt("hi")

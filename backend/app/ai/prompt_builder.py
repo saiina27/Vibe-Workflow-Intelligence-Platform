@@ -241,6 +241,11 @@ _TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
   directory path returns its files), then read the most relevant file.
   Read at most three files. If you still cannot find it, say what you
   tried and ask for the file path.
+- SLACK ANSWERS: when you answer from Slack messages, give 3 to 4 short
+  lines: what was said, who said it and when, and the link. State only
+  what the messages say; if one message matched, say that. If a Slack
+  message and a commit or decision mention the same thing, say they are
+  probably related, never that one caused the other.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 

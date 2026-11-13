@@ -87,7 +87,7 @@ def test_days_come_newest_first_with_counts_and_short_shas():
         synced=datetime(2026, 11, 3, 8, 50),
     )
 
-    assert data["counts"] == {"commits": 2, "pull_requests": 1, "decisions": 1, "chats": 2, "questions": 3}
+    assert data["counts"] == {"commits": 2, "pull_requests": 1, "slack_messages": 0, "decisions": 1, "chats": 2, "questions": 3}
     assert text.index("## 03 Nov 2026") < text.index("## 02 Nov 2026")
     assert "`abcdef1`" in text and "abcdef12" not in text
     assert "- Add check (closed) by Saina" in text
@@ -289,3 +289,99 @@ def test_grouped_chat_lines_are_capped_with_a_count_of_the_rest():
 
     assert "**Chats (10)**" in text
     assert f"- ...and {10 - ds.MAX_CHATS_PER_DAY} more" in text
+
+
+# ---------------- Slack in the digest and "probably related" ----------------
+
+def slack_message(day, hour, title="Deployment failed on Render", ext="C1:1"):
+    return {
+        "type": "slack_message", "repo": "#dev-updates", "title": title,
+        "author": "saiina27", "detail": None, "external_id": ext,
+        "at": datetime(2026, 11, day, hour, 0),
+    }
+
+
+def decision(day, text):
+    return {"title": "Decision", "content": text, "at": datetime(2026, 11, day, 5, 0)}
+
+
+def test_slack_messages_are_listed_per_day_and_counted():
+    data, text = build(events=[slack_message(3, 4), slack_message(3, 5, title="Second one", ext="C1:2")])
+
+    assert data["counts"]["slack_messages"] == 2
+    assert "**Slack messages (2)**" in text
+    assert "- #dev-updates saiina27: Deployment failed on Render" in text
+    assert "2 Slack messages" in text
+
+
+def test_without_slack_nothing_about_slack_is_shown():
+    _, text = build(events=[commit(3, 4)])
+
+    assert "Slack" not in text and "Probably related" not in text
+
+
+def test_items_that_share_a_rare_word_are_labelled_as_a_guess():
+    data, text = build(events=[
+        slack_message(2, 4, title="Deployment failed on Render, checking logs"),
+        commit(3, 4, title="Fix deployment script for Render", sha="b" * 40),
+        commit(3, 5, title="Tidy docs", sha="c" * 40),
+    ])
+
+    assert len(data["related"]) == 1
+    assert "## Probably related" in text and "Not confirmed" in text
+    assert "(shared: deployment, render)" in text
+    assert "Slack #dev-updates" in text and "commit `bbbbbbb`" in text
+
+
+def test_items_more_than_a_day_apart_are_not_related():
+    data, _ = build(events=[
+        slack_message(1, 4, title="Deployment failed on Render"),
+        commit(3, 4, title="Fix deployment for Render", sha="b" * 40),
+    ])
+
+    assert data["related"] == []
+
+
+def test_a_decision_may_be_up_to_a_week_after_the_slack_message():
+    slack = slack_message(1, 4, title="We decided to use Groq as the fallback provider")
+    text = "Decision: Use Groq as fallback provider. Reason: quota."
+
+    data, markdown = build(events=[slack], decisions=[decision(3, text)])
+
+    assert len(data["related"]) == 1
+    # Words under 5 letters (such as groq) are not used for links.
+    assert "(shared: fallback, provider)" in markdown
+
+    commit_far = commit(3, 4, title="Groq fallback provider tweak", sha="d" * 40)
+    data, _ = build(events=[slack, commit_far])
+
+    assert data["related"] == []
+
+
+def test_words_that_are_in_most_items_do_not_link_anything():
+    events = [slack_message(3, 4, title="Render alerts")] + [
+        commit(3, 5 + i, title=f"Render change number {i}", sha=f"{i:040x}") for i in range(4)
+    ]
+    data, _ = build(events=events)
+
+    assert data["related"] == []
+
+
+def test_related_pairs_are_capped_and_each_item_is_used_once():
+    events = []
+
+    for i in range(20):
+        word = f"keyword{i:02d}"
+        events.append(slack_message(3, 1, title=f"{word} came up", ext=f"C:{i}"))
+        events.append(commit(3, 2, title=f"{word} was fixed", sha=f"{i:040x}"))
+
+    data, _ = build(events=events)
+
+    assert len(data["related"]) == ds.MAX_RELATED
+    labels = [r["a"] for r in data["related"]] + [r["b"] for r in data["related"]]
+    assert len(labels) == len(set(labels))
+
+
+def test_one_item_alone_never_crashes():
+    assert build(events=[slack_message(3, 4)])[0]["related"] == []
+    assert build()[0]["related"] == []

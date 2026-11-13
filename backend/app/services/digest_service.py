@@ -1,4 +1,5 @@
-from collections import defaultdict
+import re
+from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 
 from sqlalchemy import or_
@@ -17,6 +18,7 @@ MAX_COMMITS_PER_DAY = 8
 MAX_PRS_PER_DAY = 6
 MAX_DECISIONS_PER_DAY = 5
 MAX_CHATS_PER_DAY = 6
+MAX_SLACK_PER_DAY = 6
 MAX_ROWS = 1000
 MAX_MARKDOWN_CHARS = 14000
 
@@ -169,7 +171,13 @@ def _safe(db, label, notes, default, call):
 
 def assemble(events, decisions, chat_data, synced, first, last, notes) -> dict:
     days = defaultdict(
-        lambda: {"commits": [], "prs": [], "decisions": [], "chats": defaultdict(int)}
+        lambda: {
+            "commits": [],
+            "prs": [],
+            "slack": [],
+            "decisions": [],
+            "chats": defaultdict(int),
+        }
     )
 
     for e in events:
@@ -182,6 +190,8 @@ def assemble(events, decisions, chat_data, synced, first, last, notes) -> dict:
             days[day]["commits"].append(e)
         elif e["type"] == "pull_request":
             days[day]["prs"].append(e)
+        elif e["type"] == "slack_message":
+            days[day]["slack"].append(e)
 
     for d in decisions:
         day = ist_day(d["at"])
@@ -203,6 +213,7 @@ def assemble(events, decisions, chat_data, synced, first, last, notes) -> dict:
     counts = {
         "commits": sum(len(b["commits"]) for b in days.values()),
         "pull_requests": sum(len(b["prs"]) for b in days.values()),
+        "slack_messages": sum(len(b["slack"]) for b in days.values()),
         "decisions": sum(len(b["decisions"]) for b in days.values()),
         "chats": len(chat_ids),
         "questions": questions,
@@ -212,11 +223,134 @@ def assemble(events, decisions, chat_data, synced, first, last, notes) -> dict:
         "days": dict(days),
         "chats": chat_data.get("chats", {}),
         "counts": counts,
+        "related": find_related(days),
         "synced": synced,
         "first": first,
         "last": last,
         "notes": notes,
     }
+
+
+# ------------------------------------------------------------
+# "Probably related": a guess from shared rare words and nearby dates.
+# It never says one thing caused another.
+# ------------------------------------------------------------
+
+MAX_RELATED = 8
+MAX_RELATED_ITEMS = 400
+GENERIC_SHARE = 0.3
+LINK_WINDOW_DAYS = 1
+DECISION_WINDOW_DAYS = 7
+
+STOPWORDS = {
+    "about", "added", "adding", "after", "again", "before", "being", "change",
+    "changes", "chats", "check", "code", "commit", "commits", "could", "each",
+    "first", "fixed", "from", "have", "include", "into", "latest", "message",
+    "more", "most", "needs", "never", "only", "other", "project", "same",
+    "should", "some", "tests", "their", "them", "then", "there", "these",
+    "this", "those", "update", "updated", "using", "vibe", "well", "when",
+    "which", "with", "work", "works", "would",
+}
+
+
+def _tokens(text) -> set:
+    return {
+        word
+        for word in re.findall(r"[a-z0-9_]{5,}", (text or "").lower())
+        if word not in STOPWORDS and not word.isdigit()
+    }
+
+
+def _related_items(days) -> list:
+    items = []
+
+    for day in sorted(days, reverse=True):
+        bucket = days[day]
+
+        for e in bucket["commits"]:
+            sha = (e["external_id"] or "")[:7]
+            title = _clip(e["title"], 60)
+            items.append({"kind": "commit", "day": day, "text": e["title"],
+                          "label": f'commit `{sha}` "{title}"'})
+
+        for e in bucket["prs"]:
+            title = _clip(e["title"], 60)
+            items.append({"kind": "pull_request", "day": day, "text": e["title"],
+                          "label": f'pull request "{title}"'})
+
+        for e in bucket["slack"]:
+            title = _clip(e["title"], 60)
+            items.append({"kind": "slack", "day": day, "text": e["title"],
+                          "label": f'Slack {e["repo"]} "{title}"'})
+
+        for d in bucket["decisions"]:
+            text = d["content"] or d["title"]
+            title = _clip(text, 60)
+            items.append({"kind": "decision", "day": day, "text": text,
+                          "label": f'decision "{title}"'})
+
+    return items[:MAX_RELATED_ITEMS]
+
+
+def find_related(days) -> list:
+    items = _related_items(days)
+    count = len(items)
+
+    if count < 2:
+        return []
+
+    token_sets = [_tokens(item["text"]) for item in items]
+    frequency = Counter()
+
+    for tokens in token_sets:
+        frequency.update(tokens)
+
+    # With a few items, "common" means nothing, so nothing is filtered.
+    generic = (
+        {t for t, n in frequency.items() if n / count > GENERIC_SHARE}
+        if count >= 5
+        else set()
+    )
+
+    pairs = []
+
+    for a in range(count):
+        for b in range(a + 1, count):
+            x, y = items[a], items[b]
+
+            if x["kind"] == y["kind"]:
+                continue
+
+            window = (
+                DECISION_WINDOW_DAYS
+                if "decision" in (x["kind"], y["kind"])
+                else LINK_WINDOW_DAYS
+            )
+
+            if abs((x["day"] - y["day"]).days) > window:
+                continue
+
+            shared = (token_sets[a] & token_sets[b]) - generic
+
+            if shared:
+                pairs.append((len(shared), a, b, sorted(shared)))
+
+    pairs.sort(key=lambda p: (-p[0], p[1], p[2]))
+
+    out = []
+    used = set()
+
+    for _size, a, b, shared in pairs:
+        if a in used or b in used:
+            continue
+
+        used.update((a, b))
+        out.append({"a": items[a]["label"], "b": items[b]["label"], "shared": shared[:3]})
+
+        if len(out) == MAX_RELATED:
+            break
+
+    return out
 
 
 def _plural(n: int, word: str) -> str:
@@ -281,19 +415,21 @@ def render_markdown(data: dict) -> str:
 
     out = [f"# Vibe digest: {span} (IST)", ""]
 
-    out.append(
-        "**"
-        + ", ".join(
-            [
-                _plural(counts["commits"], "commit"),
-                _plural(counts["pull_requests"], "pull request"),
-                _plural(counts["decisions"], "decision") + " recorded",
-                _plural(counts["chats"], "chat")
-                + f" ({_plural(counts['questions'], 'question')})",
-            ]
-        )
-        + "**"
-    )
+    parts = [
+        _plural(counts["commits"], "commit"),
+        _plural(counts["pull_requests"], "pull request"),
+    ]
+
+    if counts.get("slack_messages"):
+        parts.append(_plural(counts["slack_messages"], "Slack message"))
+
+    parts += [
+        _plural(counts["decisions"], "decision") + " recorded",
+        _plural(counts["chats"], "chat")
+        + f" ({_plural(counts['questions'], 'question')})",
+    ]
+
+    out.append("**" + ", ".join(parts) + "**")
 
     if data["synced"]:
         out.append(
@@ -347,6 +483,18 @@ def render_markdown(data: dict) -> str:
             if len(prs) > MAX_PRS_PER_DAY:
                 out.append(f"- ...and {len(prs) - MAX_PRS_PER_DAY} more")
 
+        slack = bucket["slack"]
+
+        if slack:
+            out += ["", f"**Slack messages ({len(slack)})**"]
+
+            for e in slack[:MAX_SLACK_PER_DAY]:
+                who = f" {e['author']}" if e["author"] else ""
+                out.append(f"- {e['repo']}{who}: {_clip(e['title'], 120)}")
+
+            if len(slack) > MAX_SLACK_PER_DAY:
+                out.append(f"- ...and {len(slack) - MAX_SLACK_PER_DAY} more")
+
         decisions = bucket["decisions"]
 
         if decisions:
@@ -362,7 +510,6 @@ def render_markdown(data: dict) -> str:
 
         if chats:
             out += ["", f"**Chats ({len(chats)})**"]
-
             groups = _group_chats(chats, data["chats"])
 
             for title, topic, chat_count, questions in groups[:MAX_CHATS_PER_DAY]:
@@ -374,6 +521,18 @@ def render_markdown(data: dict) -> str:
 
             if len(groups) > MAX_CHATS_PER_DAY:
                 out.append(f"- ...and {len(groups) - MAX_CHATS_PER_DAY} more")
+
+    related = data.get("related") or []
+
+    if related:
+        out += [
+            "",
+            "## Probably related",
+            "_A guess from shared words and nearby dates. Not confirmed._",
+        ]
+
+        for r in related:
+            out.append(f"- {r['a']} and {r['b']} (shared: {', '.join(r['shared'])})")
 
     text = "\n".join(out)
 
