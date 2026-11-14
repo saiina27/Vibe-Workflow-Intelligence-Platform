@@ -445,6 +445,19 @@ def render_markdown(data: dict) -> str:
     for note in data["notes"]:
         out.append(f"_Note: {note}_")
 
+    # Near the top, so the size cap (which cuts the oldest days) keeps it.
+    related = data.get("related") or []
+
+    if related:
+        out += [
+            "",
+            "## Probably related",
+            "_A guess from shared words and nearby dates. Not confirmed._",
+        ]
+
+        for r in related:
+            out.append(f"- {r['a']} and {r['b']} (shared: {', '.join(r['shared'])})")
+
     days = data["days"]
     repos = {e["repo"] for b in days.values() for e in b["commits"] + b["prs"]}
     several_repos = len(repos) > 1
@@ -521,18 +534,6 @@ def render_markdown(data: dict) -> str:
 
             if len(groups) > MAX_CHATS_PER_DAY:
                 out.append(f"- ...and {len(groups) - MAX_CHATS_PER_DAY} more")
-
-    related = data.get("related") or []
-
-    if related:
-        out += [
-            "",
-            "## Probably related",
-            "_A guess from shared words and nearby dates. Not confirmed._",
-        ]
-
-        for r in related:
-            out.append(f"- {r['a']} and {r['b']} (shared: {', '.join(r['shared'])})")
 
     text = "\n".join(out)
 

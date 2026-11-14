@@ -385,3 +385,24 @@ def test_related_pairs_are_capped_and_each_item_is_used_once():
 def test_one_item_alone_never_crashes():
     assert build(events=[slack_message(3, 4)])[0]["related"] == []
     assert build()[0]["related"] == []
+
+
+def test_probably_related_comes_before_the_days_and_survives_the_size_cap(monkeypatch):
+    events = [
+        slack_message(2, 4, title="Deployment failed on Render, checking logs"),
+        commit(3, 4, title="Fix deployment script for Render", sha="b" * 40),
+    ] + [
+        commit(3, 5, title=f"Filler number {i} " + "z" * 100, sha=f"{i:040x}")
+        for i in range(6)
+    ]
+
+    data, text = build(events=events)
+
+    assert data["related"]
+    assert text.index("## Probably related") < text.index("## 03 Nov 2026")
+
+    monkeypatch.setattr(ds, "MAX_MARKDOWN_CHARS", 700)
+    _, small = build(events=events)
+
+    assert "## Probably related" in small
+    assert "Digest shortened" in small

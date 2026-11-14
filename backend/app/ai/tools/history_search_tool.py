@@ -19,6 +19,11 @@ TYPE_ALIASES = {
     "pull_requests": "pull_request",
     "pr": "pull_request",
     "prs": "pull_request",
+    "slack": "slack_message",
+    "slack_message": "slack_message",
+    "slack_messages": "slack_message",
+    "message": "slack_message",
+    "messages": "slack_message",
 }
 
 
@@ -40,7 +45,8 @@ class HistorySearchTool(BaseTool):
     def description(self) -> str:
         return (
             "Search the saved development history of the user's tracked "
-            "GitHub repositories (commits and pull requests) by date, "
+            "GitHub repositories (commits and pull requests) and the saved Slack "
+            "messages of the watch words, by date, "
             "keywords, type or repository. Use it for questions like "
             "'what changed on 5 Oct' or 'what did we do last week'. "
             "Dates are YYYY-MM-DD (or MM-DD); for relative periods use "
@@ -72,7 +78,7 @@ class HistorySearchTool(BaseTool):
                 },
                 "event_type": {
                     "type": ["string", "null"],
-                    "description": "commit or pull_request.",
+                    "description": "commit, pull_request or slack_message.",
                 },
                 "repo": {
                     "type": ["string", "null"],

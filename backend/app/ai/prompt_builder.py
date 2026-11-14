@@ -246,6 +246,13 @@ _TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
   what the messages say; if one message matched, say that. If a Slack
   message and a commit or decision mention the same thing, say they are
   probably related, never that one caused the other.
+  A search that finds nothing only means no message matched those
+  words: say "no Slack message matched X" and never that the team did
+  not post anything. Search with the topic words only (for example
+  "deployment"), not with words such as team, said or discussion.
+  Saved Slack messages can also be searched with search_history
+  (event_type slack_message): if slack_search_public finds nothing,
+  try that once before answering.
 - Only use tools in your tool list. If Slack is not available, say so
   briefly and continue with the other sources.
 
