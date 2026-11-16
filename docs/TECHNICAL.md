@@ -2,7 +2,7 @@
 
 Vibe is a production-style AI backend built with FastAPI and PostgreSQL. It evolved from a persistent conversational AI into a tool-using, context-aware developer assistant with long-term memory, RAG, multi-provider LLM routing, and an MCP-standard integration layer for GitHub and Slack.
 
-**Current milestone: Sprint 18 — Developer Intelligence layer, security limits, free-tier efficiency and the weekly digest, on top of Sprint 12 MCP ✅**
+**Current milestone: V1 — developer history, Slack watch words, digest, code explain and improve modes, security limits, CI, on top of Sprint 12 MCP ✅**
 
 🔗 **Live demo:** https://vibe-workflow-intelligence-platform.vercel.app (React frontend on Vercel, FastAPI backend on Render)
 
@@ -195,7 +195,7 @@ Engineering notes:
 
 Built on top of the existing tool-calling and MCP layers, without rebuilding them.
 
-**New tables** (Alembic revisions `d13a0b7e2c41` and `e24b6c9d3a15`)
+**New tables** (Alembic revisions `d13a0b7e2c41`, `e24b6c9d3a15` and `f35c7d1e4b26`)
 
 | Table | Purpose |
 |---|---|
@@ -203,13 +203,14 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 | `dev_events` | Normalized commits and pull requests. Metadata only, no emails, no diffs. Unique on `(workspace_id, source, repo, external_id)`, so sync is idempotent |
 | `code_files` | Files and folders of tracked repositories. Folder rows use `size = -1` and act as a resumable scan queue |
 | `code_symbols` | Function, class, method and constant names with line numbers and a one-line doc. No code bodies |
+| `tracked_slack_terms` | Words the user wants Vibe to look for in Slack. Matching messages are saved in `dev_events` with `source = 'slack'`, `event_type = 'slack_message'` and a 160 character snippet |
 
 **New tools** (all read-only, scoped by the application's `ToolContext`, never by the model)
 
 | Tool | What it does |
 |---|---|
 | `search_chats` | Searches earlier chats of the workspace by keywords and IST dates |
-| `search_history` | Searches saved commits and pull requests by date, keywords, type or repository |
+| `search_history` | Searches saved commits, pull requests and Slack messages by date, keywords, type or repository. For a date or period without keywords or type it also lists the Vibe chats of that period |
 | `find_in_code` | Finds where something is implemented from the symbol index, and returns the matching lines of the best two files (windows chosen by keyword rarity, with the assignments behind the variables used on those lines). File text is cached per sha |
 | `search_memory` | Now accepts an optional `memory_type` (for example `decision`) |
 
@@ -222,6 +223,9 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 | `POST /dev-events/sync`, `GET /dev-events` | Sync and list saved history |
 | `GET /code-index/status`, `POST /code-index/run?repo=&scan=` | Code index progress and one 40-second batch |
 | `GET /digest?days=` | Copy-ready summary of the period (IST days) built from saved commits, pull requests, decisions and chats. No LLM call |
+| `GET/POST /slack-terms`, `DELETE /slack-terms/{id}` | Manage the Slack watch words |
+| `POST /slack-sync` | Search Slack for every watch word and save the matches |
+| `DELETE /slack-events` | Remove every saved Slack message of the workspace |
 
 **How it works**
 
@@ -237,6 +241,26 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 - **Tracked repositories in the prompt.** With a tracked repository, the model skips the `get_me` and `search_repositories` rounds.
 - **Provider cooldown.** After a 429 or quota error a provider is skipped for 30 minutes, after a 503 for 2 minutes, and the fallback provider is used instead.
 - **413 handling.** A "request too large" error from the provider ends the stream with a clear message instead of a raw error.
+
+## 🔄 Auto-sync, Slack watch words and digest links (Sprints 13.3, 16)
+
+**Auto-sync.** `GET /oauth/github/status` starts a background task (`mcp/prewarm.py`) that connects GitHub MCP. When it is connected, `services/auto_sync_service.py` finds the user's tracked repositories whose `last_synced_at` is older than `AUTO_SYNC_HOURS` (default 6, `0` turns it off) and syncs them with the same read-only tools as the manual sync. `services/slack_sync_service.py` does the same for Slack watch words. A warm-up runs at most once every two minutes per user. One failing repository or word never stops the others.
+
+**Why watch words.** The Slack token has the `search:read` scope, and the Slack MCP server exposes only search tools (`slack_search_public`, `slack_search_public_and_private`, `slack_search_channels`). Checked live: searching for `in:#channel`, or for a channel name, returns nothing, so a channel's history cannot be read. Sync therefore searches for words the user chose.
+
+- Sync may call only `slack_search_public` (`ALLOWED_SLACK_SYNC_TOOLS`). At most 20 words per workspace and 20 results per word.
+- The result of the search tool is text, not JSON. The parser reads the `detailed` format (`Channel`, `From`, `Time`, `Message_ts`, `Permalink`, `Text`), ignores the "Context before/after" lines, strips Slack markup and keeps the first 160 characters.
+- `external_id` is `channel_id:message_ts`, so syncing again does not create duplicates.
+- Before a Slack search runs, words that belong to the question itself (team, said, discussion, ...) are removed from `keywords`, because Slack requires every keyword to be in a message. Optional Slack parameters that the model fills with `null` are hidden from the model.
+
+**Digest.** Slack messages are listed per day. "Probably related" pairs two items of different kinds (commit, pull request, Slack message, decision) when they share rare words (5 letters or more, not in more than 30% of the items, and not the words every saved decision contains) and are one day apart (seven for decisions). Each item is used once, at most eight pairs are shown, and the section says it is a guess. It sits at the top of the digest so the size cap never cuts it.
+
+**Improve mode.** Words such as improve, refactor, optimize and review open the code-reading tools when a repository is tracked. The prompt allows at most four suggestions, no new infrastructure, and a closing line saying the user applies them. Vibe cannot change code.
+
+**Prompt size.** The Slack-answer rules are sent only for questions that can involve Slack or a decision, which saves about 190 tokens on other questions.
+
+**Disconnect.** The Slack button in the header disconnects Slack after a confirmation. Saved Slack messages and watch words stay until the user clears them.
+
 
 ## ⚡ Security, efficiency and reliability (Sprints 17–18)
 
@@ -342,13 +366,34 @@ All non-auth routes are protected via a `get_current_user` JWT dependency.
 
 ## 🧪 Testing
 
-The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **643 automated pytest test cases** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
+The test suite covers auth/workspace authorization, native tool permissions, MCP plugin registry, MCP permissions, MCP tool adaptation, MCP integrations, GitHub OAuth, MCP server management and tool discovery, GitHub/Slack runtimes, MCP tool-execution authorization, end-to-end MCP tool calling, multi-iteration tool loops, tool-result bounding, and MCP failure handling — **722 automated pytest test cases** across the test modules, plus a separate Sprint 12 acceptance script for real GitHub/Slack integration validation.
 
 ```bash
 pytest -q
 ```
 
 **Sprint 12 real-integration acceptance test** — `tests/test_mcp_acceptance.py` is a manual/async acceptance script that validates configured OAuth integrations, persisted integrations, real MCP connections, tool discovery, and real tool execution. It requires valid, connected credentials and is intentionally kept separate from the normal pytest suite.
+
+## 🚀 Deployment
+
+| Part | Where | Notes |
+|---|---|---|
+| Frontend | Vercel (Vite) | Environment variable `VITE_API_BASE_URL` = the backend URL |
+| Backend | Render web service, root directory `backend` | Build: `pip install -r requirements.txt` (confirm in the dashboard). Start: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Python 3.14 |
+| Database | Neon PostgreSQL with pgvector | Migrations are **not** run by Render. Run them by hand: `DATABASE_URL=<neon url> alembic upgrade head` |
+
+**Environment variables of the backend** (names only; keep real values out of the repository):
+
+- Required: `APP_NAME`, `APP_VERSION`, `DEBUG`, `HOST`, `PORT`, `DATABASE_URL`, `SECRET_KEY`, `ALGORITHM`, `ACCESS_TOKEN_EXPIRE_MINUTES`, `GEMINI_API_KEY`, `GEMINI_MODEL`.
+- AI: `GROQ_API_KEY`, `GROQ_MODEL`, `PRIMARY_PROVIDER`, `FALLBACK_PROVIDER`, `TAVILY_API_KEY`.
+- Web: `CORS_ORIGINS` must contain the exact frontend URL (no trailing slash, no `*`), `FRONTEND_URL`.
+- Integrations: `OAUTH_ENCRYPTION_KEY` (a Fernet key), `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_REDIRECT_URI`, `SLACK_MCP_URL`. GitHub uses a personal access token pasted in the UI, so the `GITHUB_*` variables are not needed.
+- Optional tuning: `GROQ_MODEL_POOL`, `GROQ_REASONING_EFFORT`, `AUTO_SYNC_HOURS`, `RATE_LIMIT_PER_MINUTE`, `RATE_LIMIT_PER_DAY`, `RATE_LIMIT_GLOBAL_PER_DAY`, `RATE_LIMIT_EXEMPT_USER_IDS`, `LOGIN_FAILURES_PER_10MIN`, `SIGNUPS_PER_IP_PER_HOUR`, `SIGNUPS_PER_DAY`.
+
+**Order of a release:** push to `main` (GitHub Actions runs the tests and the frontend build), run any new migration on Neon, redeploy the backend on Render, and redeploy the frontend on Vercel.
+
+**CI** (`.github/workflows/tests.yml`) starts a pgvector PostgreSQL service, installs the requirements, runs `alembic upgrade head` on the empty database (informational), runs `pytest`, and builds the frontend. It uses dummy keys only.
+
 
 ## 🛠️ Local Setup
 
@@ -486,9 +531,9 @@ Vibe evolved from a basic AI chat backend into a context-aware system combining 
 - **No CI / checks data.** Questions like "why did my PR fail?" are not supported, because no such tool is exposed.
 - **Long tool results are shortened** (3,000 characters) before going to the model, after noise such as avatar URLs and emails is removed. Vibe tells the user when a list or file was cut.
 - **Free-tier LLM limits.** Groq allows 8,000 tokens per minute and 200,000 per day per model, and Gemini's free tier allows about 20 requests per day. Two models give two budgets, but one heavy question can use most of a minute's budget, so a second one asked straight away may wait up to about 20 seconds.
-- **Slack** has the `search:read` scope only. It is connected and tested live; Slack history is not synced into `dev_events` and is not part of the digest.
+- **Slack** has the `search:read` scope only. It can be searched by word but a channel's history and the replies in a thread cannot be read, so sync works with watch words. Only the first 160 characters of a matching message are saved.
 - **Code index** covers Python files only (names and line numbers, not code). `find_in_code` shows only the lines that match the keywords of the question, so a detail that does not contain those words can be missing; the model then reads the file.
-- **History is synced on demand** ("Sync now" or `POST /dev-events/sync`), not by webhooks. Only commits and pull requests are stored.
+- **History is refreshed when the page opens** (when it is older than `AUTO_SYNC_HOURS`) or on demand ("Sync now"). There are no webhooks. Only commits and pull requests are synced from GitHub.
 - **Rate-limit counters live in memory.** They reset when the server restarts and are not shared between instances.
 
 ## 🚧 Future Extensions

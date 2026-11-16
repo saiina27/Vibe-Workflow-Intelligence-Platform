@@ -16,10 +16,11 @@ The answer is scattered. The code is on GitHub, the discussion was on Slack, the
 
 | You ask | What Vibe does |
 |---|---|
-| "What changed on 5 Oct?" | Looks up your saved project history (commits and pull requests) |
+| "What happened on 6 Oct?" | Looks up the saved history of that day: commits, pull requests, Slack messages, and your Vibe chats |
 | "Why did we choose Groq as the fallback provider?" | Finds the decision you recorded, with the reason and the alternatives |
 | "What did the team say about the deployment on Slack?" | Searches your Slack workspace |
 | "Explain how the provider cooldown works" | Finds the right file in your code and explains it from the real lines |
+| "How can I improve the provider cooldown code?" | Reads the code and gives up to four suggestions. It never changes anything |
 | "What did we discuss earlier about rate limiting?" | Searches your past Vibe chats |
 | "Show the open issues in my repo" | Reads GitHub and answers in a table |
 | "Summarize my uploaded PDF" | Searches your own documents |
@@ -32,11 +33,12 @@ Vibe is built to say where an answer came from, and to admit when it did not che
 - **Your documents.** Upload PDFs or text files and ask questions about them.
 - **GitHub (read-only).** Commits, branches, files, pull requests, issues, releases, repository search.
 - **Slack (read-only search).** Finds relevant messages and channels.
-- **Developer history.** Saves your commits and pull requests so Vibe can answer "what happened on this date?" without asking GitHub every time.
-- **Weekly digest.** One click builds a copy-ready summary of the period (commits, pull requests, decisions, chats). It is made from saved data with no AI call, so it costs no quota.
+- **Developer history.** Saves your commits and pull requests so Vibe can answer "what happened on this date?" without asking GitHub every time. It refreshes itself when you open Vibe and the saved history is more than six hours old.
+- **Slack watch words.** Slack can only be searched by word, so you list the words you care about (for example deploy or decided). Vibe saves the first 160 characters of each matching message with its link. One button removes all saved Slack messages.
+- **Weekly digest.** One click builds a copy-ready summary of the period: commits, pull requests, Slack messages, decisions and chats. It also lists things that are *probably related* (for example a Slack message and a commit that mention the same thing around the same time). That list is a guess and says so. The digest is made from saved data with no AI call, so it costs no quota.
 - **Decision memory.** Records what was decided, why, and what else was considered. It never invents a reason.
 - **Code index.** Remembers the names of functions and classes in your Python code. When you ask how something works, Vibe finds the right file and reads the matching lines.
-- **Explain mode.** Explanations come in four parts: what it is, why it is this way, how it works, alternatives.
+- **Explain and improve modes.** Explanations come in four parts: what it is, why it is this way, how it works, alternatives. Improvement questions get at most four suggestions that you apply yourself.
 - **Tool Activity panel.** You can see which tools Vibe used for each answer.
 
 ## How it works
@@ -48,6 +50,7 @@ A React web app sends your question to a FastAPI backend, which coordinates AI m
 - **Database:** PostgreSQL, hosted on Neon.
 - **AI providers:** Gemini and Groq.
 - **Integrations:** GitHub and Slack, with read-only access.
+- **Checks:** GitHub Actions runs the automated tests and the frontend build on every push.
 
 For each question, the AI decides which tools it needs, the backend runs them, and the AI writes the answer from the results.
 
@@ -66,9 +69,10 @@ In practice a typical question is answered in a few seconds. If you ask several 
 ## Safety
 
 - GitHub access is **read-only**, and this is enforced twice: write tools are never shown to the AI, and a guard blocks them even if the AI asks for one.
-- The Slack permission is search only.
+- The Slack permission is search only. Vibe never posts to Slack.
 - GitHub and Slack tokens are encrypted, and every connection belongs to one user.
 - Text that comes from GitHub, Slack or documents is marked as data. Vibe checks it for instructions aimed at the AI and tells the model to ignore them.
+- Slack messages are saved only for your watch words, only 160 characters each, and you can remove them all with one button. Disconnecting Slack stops further reads.
 - There are limits on how many questions one user can ask, how many wrong passwords one network can try, and how many accounts it can create.
 - The code index stores only names of functions and classes, not your code. Commit author emails are removed before data goes to the AI model.
 
@@ -76,16 +80,17 @@ In practice a typical question is answered in a few seconds. If you ask several 
 
 - Free AI plans have limits (Groq about 8,000 tokens per minute and 200,000 per day per model, Gemini's free plan about 20 requests per day), so heavy use can hit them.
 - AI can still be wrong. Vibe's checks reduce mistakes but do not remove them.
+- Slack access is search only, so Vibe cannot read a whole channel or the replies inside a thread. This is why Slack works with watch words.
 - The code index covers Python files only. Vibe shows the lines that match your question, not the whole file.
-- History is saved when you press **Sync now**. It does not update by itself.
-- The digest does not include Slack.
+- Saved history refreshes when you open Vibe (or press **Sync now**). It does not update by itself while the page is closed.
+- The "probably related" list is a guess from shared words and dates.
 - Vibe cannot answer questions about CI or test results, and it does not change anything on GitHub or Slack, by design.
 
 ## Roadmap
 
-**Done:** accounts and chat, memory, document search, multi-provider AI gateway, tool calling, GitHub and Slack integrations, deployment, developer history, weekly digest, decision memory, code index, security limits, and a test suite of 643 automated tests (pytest).
+**Done:** accounts and chat, memory, document search, multi-provider AI gateway, tool calling, GitHub and Slack integrations, deployment, developer history with automatic refresh, Slack watch words, weekly digest, decision memory, code index with explain and improve modes, security limits, and a test suite of 722 automated tests (pytest) that runs on every push.
 
-**Next:** suggestions for improving a piece of code (read-only, you apply them yourself), automatic refresh of saved history, and a demo video.
+**Next (version 2):** open a pull request on a new branch after you approve it (never on the main branch), reading Slack thread replies if the permission allows it, and updates that arrive by webhook instead of on page open.
 
 **Later, only when needed:** workflow orchestration (LangGraph) and multiple cooperating agents. These are postponed on purpose until a real multi-step workflow needs them.
 
@@ -93,7 +98,8 @@ In practice a typical question is answered in a few seconds. If you ask several 
 
 - `backend/` : FastAPI app: AI gateway, tools, GitHub and Slack integrations, database models, tests.
 - `frontend/` : React web app: chat, memory, documents, Activity panel.
-- `docs/TECHNICAL.md` : detailed engineering notes, API list and local setup.
+- `docs/TECHNICAL.md` : detailed engineering notes, API list, deployment and local setup.
+- `.github/workflows/` : the automated checks.
 
 ## Run it locally
 
