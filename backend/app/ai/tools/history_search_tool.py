@@ -9,6 +9,7 @@ from app.ai.tools.chat_search_tool import (
 )
 from app.ai.tools.context import ToolContext
 from app.services import dev_events_service as svc
+from app.services import digest_service
 
 MAX_RESULTS = 15
 
@@ -51,7 +52,8 @@ class HistorySearchTool(BaseTool):
             "'what changed on 5 Oct' or 'what did we do last week'. "
             "Dates are YYYY-MM-DD (or MM-DD); for relative periods use "
             "last_days. Data is as of the last sync, so it may miss "
-            "very recent changes."
+            "very recent changes. For a date or period without keywords or a "
+            "type it also lists the Vibe chats of that period."
         )
 
     @property
@@ -87,6 +89,44 @@ class HistorySearchTool(BaseTool):
             },
             "required": [],
         }
+
+    def _chats_in_window(self, start, end) -> list:
+        """Titles and question counts of the Vibe chats in the window, from
+        the database. Never raises; the asking chat is left out."""
+
+        try:
+            data = digest_service.fetch_chat_activity(
+                self.context.db, self.context.workspace_id, start
+            )
+        except Exception:
+            try:
+                self.context.db.rollback()
+            except Exception:
+                pass
+
+            return []
+
+        counts: dict = {}
+
+        for chat_id, at in data.get("rows", []):
+            if end is not None and at >= end:
+                continue
+
+            if chat_id == self.context.chat_id:
+                continue
+
+            counts[chat_id] = counts.get(chat_id, 0) + 1
+
+        by_title: dict = {}
+
+        for chat_id, questions in counts.items():
+            title, _topic = data.get("chats", {}).get(chat_id, ("Chat", None))
+            title = " ".join(str(title or "Chat").split())[:80]
+            by_title[title] = by_title.get(title, 0) + questions
+
+        ordered = sorted(by_title.items(), key=lambda kv: (-kv[1], kv[0]))[:5]
+
+        return [{"title": t, "questions": n} for t, n in ordered]
 
     def execute(
         self,
@@ -142,6 +182,11 @@ class HistorySearchTool(BaseTool):
             limit=MAX_RESULTS,
         )
 
+        chats = []
+
+        if start is not None and not kws and not kind and not repo_filter:
+            chats = self._chats_in_window(start, end)
+
         tracked = svc.list_tracked_repos(
             self.context.db, self.context.workspace_id
         )
@@ -177,6 +222,9 @@ class HistorySearchTool(BaseTool):
                 else None
             ),
         }
+
+        if chats:
+            result["chats"] = chats
 
         if not tracked:
             result["note"] = (

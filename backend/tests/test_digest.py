@@ -406,3 +406,12 @@ def test_probably_related_comes_before_the_days_and_survives_the_size_cap(monkey
 
     assert "## Probably related" in small
     assert "Digest shortened" in small
+
+
+def test_the_words_of_the_decision_format_do_not_link_a_commit_to_a_decision():
+    data, _ = build(
+        events=[commit(3, 4, title="S14: structured decision memory (what/why/alternatives)", sha="e" * 40)],
+        decisions=[decision(3, "Decision: Use Groq as fallback provider. Reason: quota. Alternatives: pay.")],
+    )
+
+    assert data["related"] == []

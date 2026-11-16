@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 
-from app.ai.tools.registry import CODE_EXPLAIN_WORDS
+from app.ai.tools.registry import CODE_EXPLAIN_WORDS, SLACK_INTENT_WORDS
 
 from app.models.conversation_summary import ConversationSummary
 from app.models.message import Message
@@ -228,6 +228,9 @@ _TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
   synced_through. For "latest right now" questions, use the GitHub
   tools instead. If search_history returns a note about no tracked
   repository, tell the user to add and sync one.
+  For a broad "what happened on <date>" question leave event_type
+  empty, so commits, pull requests and saved Slack messages all come
+  back, and add one line about the chats in the result.
   search_history covers all tracked repositories, so never ask which
   repository for these questions. Also use it, with keywords, for
   questions like "was there ever a commit or pull request about X".
@@ -500,6 +503,52 @@ def _rule_flags(history, tracked=False) -> tuple[bool, bool, bool]:
     return capability, tool_rules, decision
 
 
+_SLACK_ANSWERS_START = "- SLACK ANSWERS:"
+_SLACK_ANSWERS_END = "try that once before answering.\n"
+
+
+def _split_slack_block(rules: str) -> tuple[str, str]:
+    """(the tool rules without the Slack-answers block, the block itself)."""
+
+    start = rules.find(_SLACK_ANSWERS_START)
+
+    if start < 0:
+        return rules, ""
+
+    end = rules.find(_SLACK_ANSWERS_END, start)
+
+    if end < 0:
+        return rules, ""
+
+    end += len(_SLACK_ANSWERS_END)
+
+    return rules[:start] + rules[end:], rules[start:end]
+
+
+_TOOL_CHOICE_NO_SLACK, _SLACK_ANSWERS = _split_slack_block(_TOOL_CHOICE_RULES)
+
+_SLACK_DECISION_WORDS = {
+    "why", "reason", "choose", "chose", "chosen",
+    "decide", "decided", "decision", "decisions",
+}
+
+
+def _wants_slack_rules(history) -> bool:
+    """The Slack-answer rules are needed only when the question can involve Slack."""
+
+    text = _intent_text(history)
+
+    if not text.strip():
+        return True
+
+    if any(ord(ch) > 127 and ch.isalpha() for ch in text):
+        return True
+
+    words = set(re.findall(r"[a-z0-9]+", text.lower()))
+
+    return bool(words & (SLACK_INTENT_WORDS | _SLACK_DECISION_WORDS | {"slack"}))
+
+
 def _system_prompt(history, tracked_repos=None) -> str:
     capability, tool_rules, decision = _rule_flags(
         history, bool(tracked_repos)
@@ -519,7 +568,11 @@ def _system_prompt(history, tracked_repos=None) -> str:
     parts.append(_IMPORTANT_AND_SOURCES)
 
     if tool_rules:
-        parts.append(_TOOL_CHOICE_RULES)
+        parts.append(
+            _TOOL_CHOICE_RULES
+            if _wants_slack_rules(history)
+            else _TOOL_CHOICE_NO_SLACK
+        )
 
     if decision:
         parts.append(_DECISION_RULES)

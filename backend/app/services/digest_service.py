@@ -250,6 +250,8 @@ STOPWORDS = {
     "should", "some", "tests", "their", "them", "then", "there", "these",
     "this", "those", "update", "updated", "using", "vibe", "well", "when",
     "which", "with", "work", "works", "would",
+    # words that every saved decision contains because of its format
+    "decision", "decisions", "decided", "reason", "alternatives",
 }
 
 
