@@ -2,6 +2,8 @@
 
 **An AI assistant for developers that remembers what happened in your project, and why.**
 
+[![Tests](https://github.com/saiina27/Vibe-Workflow-Intelligence-Platform/actions/workflows/tests.yml/badge.svg)](https://github.com/saiina27/Vibe-Workflow-Intelligence-Platform/actions/workflows/tests.yml)
+
 🔗 **Try it live:** https://vibe-workflow-intelligence-platform.vercel.app (create an account on the sign-up page)
 
 ---
