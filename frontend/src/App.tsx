@@ -26,6 +26,7 @@ import {
   streamMessage,
   uploadKnowledgeDocument,
   disconnectGitHub,
+  disconnectSlack,
   getMemories,
   updateMemory,
   deleteMemory,
@@ -276,6 +277,25 @@ function App() {
 
     loadWorkspace()
   }, [token])
+
+  async function handleSlackDisconnect() {
+    const ok = window.confirm(
+      'Disconnect Slack? Saved Slack messages and watch words stay in Vibe, and you can reconnect any time.',
+    )
+
+    if (!ok) return
+
+    try {
+      await disconnectSlack()
+      setSlackConnected(false)
+    } catch (error) {
+      window.alert(
+        error instanceof Error
+          ? error.message
+          : 'Could not disconnect Slack',
+      )
+    }
+  }
 
   function closeGithubPatModal() {
     setShowGithubPatModal(false)
@@ -2383,9 +2403,10 @@ function App() {
           <button
             className="integration-button"
             type="button"
+            title={slackConnected ? 'Click to disconnect Slack' : 'Connect Slack'}
             onClick={
               slackConnected
-                ? undefined
+                ? handleSlackDisconnect
                 : handleSlackConnect
             }
           >
