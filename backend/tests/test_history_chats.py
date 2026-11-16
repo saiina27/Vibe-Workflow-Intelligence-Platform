@@ -110,4 +110,21 @@ def test_the_prompt_asks_for_all_types_on_a_broad_date_question():
     )
 
     assert 'broad "what happened on <date>" question leave event_type' in prompt
-    assert "add one line about the chats in the result" in prompt
+    assert 'end your answer with the "chats_line" text' in prompt
+
+
+def test_the_result_has_a_ready_made_chats_line(tool):
+    out = tool.execute(date_from="2026-10-06")
+
+    assert out["chats_line"] == "Vibe chats in this period: Same title (3 questions)."
+
+
+def test_the_chats_line_uses_the_singular_for_one_question():
+    from app.ai.tools.history_search_tool import _chats_line
+
+    line = _chats_line([
+        {"title": "A", "questions": 1},
+        {"title": "B", "questions": 2},
+    ])
+
+    assert line == "Vibe chats in this period: A (1 question); B (2 questions)."

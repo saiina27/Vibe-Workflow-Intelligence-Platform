@@ -230,7 +230,8 @@ _TOOL_CHOICE_RULES = """TOOL CHOICE RULES (GitHub, Slack, memory):
   repository, tell the user to add and sync one.
   For a broad "what happened on <date>" question leave event_type
   empty, so commits, pull requests and saved Slack messages all come
-  back, and add one line about the chats in the result.
+  back, and end your answer with the "chats_line" text from the result
+  when it is there.
   search_history covers all tracked repositories, so never ask which
   repository for these questions. Also use it, with keywords, for
   questions like "was there ever a commit or pull request about X".

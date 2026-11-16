@@ -28,6 +28,19 @@ TYPE_ALIASES = {
 }
 
 
+def _chats_line(chats: list) -> str:
+    """A ready-made sentence about the chats of the period."""
+
+    parts = []
+
+    for chat in chats:
+        n = chat["questions"]
+        word = "question" if n == 1 else "questions"
+        parts.append(f"{chat['title']} ({n} {word})")
+
+    return "Vibe chats in this period: " + "; ".join(parts) + "."
+
+
 class HistorySearchTool(BaseTool):
     """
     Search the saved developer history (commits and pull requests that
@@ -225,6 +238,7 @@ class HistorySearchTool(BaseTool):
 
         if chats:
             result["chats"] = chats
+            result["chats_line"] = _chats_line(chats)
 
         if not tracked:
             result["note"] = (
