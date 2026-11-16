@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     services:
@@ -73,6 +73,16 @@ jobs:
         run: |
           echo "OAUTH_ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')" >> "$GITHUB_ENV"
 
+      - name: Enable the pgvector extension
+        run: |
+          python - <<'PY'
+          import psycopg2
+          conn = psycopg2.connect("postgresql://postgres:postgres@localhost:5432/vibe_test")
+          conn.autocommit = True
+          conn.cursor().execute("CREATE EXTENSION IF NOT EXISTS vector")
+          conn.close()
+          PY
+
       - name: Migrations on an empty database (informational)
         continue-on-error: true
         run: alembic upgrade head
@@ -81,7 +91,7 @@ jobs:
         run: python -m pytest tests -q
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     defaults:
