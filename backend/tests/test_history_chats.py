@@ -110,13 +110,20 @@ def test_the_prompt_asks_for_all_types_on_a_broad_date_question():
     )
 
     assert 'broad "what happened on <date>" question leave event_type' in prompt
-    assert 'end your answer with the "chats_line" text' in prompt
+    assert "rows of type vibe_chat" in prompt
 
 
-def test_the_result_has_a_ready_made_chats_line(tool):
+def test_the_chats_also_come_back_as_rows_of_type_vibe_chat(tool):
     out = tool.execute(date_from="2026-10-06")
 
-    assert out["chats_line"] == "Vibe chats in this period: Same title (3 questions)."
+    rows = [e for e in out["events"] if e["type"] == "vibe_chat"]
+
+    assert rows == [{
+        "type": "vibe_chat", "repo": "Vibe chats", "time": "this period",
+        "title": "Same title", "author": None, "status": "3 questions", "url": None,
+    }]
+    assert out["count"] == 1
+    assert "chats_line" not in out
 
 
 def test_the_chats_line_uses_the_singular_for_one_question():

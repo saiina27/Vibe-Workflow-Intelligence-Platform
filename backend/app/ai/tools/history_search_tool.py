@@ -238,7 +238,19 @@ class HistorySearchTool(BaseTool):
 
         if chats:
             result["chats"] = chats
-            result["chats_line"] = _chats_line(chats)
+            result["events"] = events + [
+                {
+                    "type": "vibe_chat",
+                    "repo": "Vibe chats",
+                    "time": "this period",
+                    "title": chat["title"],
+                    "author": None,
+                    "status": f"{chat['questions']} question"
+                    + ("" if chat["questions"] == 1 else "s"),
+                    "url": None,
+                }
+                for chat in chats
+            ]
 
         if not tracked:
             result["note"] = (
