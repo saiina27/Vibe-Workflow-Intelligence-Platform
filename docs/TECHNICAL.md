@@ -210,7 +210,7 @@ Built on top of the existing tool-calling and MCP layers, without rebuilding the
 | Tool | What it does |
 |---|---|
 | `search_chats` | Searches earlier chats of the workspace by keywords and IST dates |
-| `search_history` | Searches saved commits, pull requests and Slack messages by date, keywords, type or repository. For a date or period without keywords or type it also lists the Vibe chats of that period |
+| `search_history` | Searches saved commits, pull requests and Slack messages by date, keywords, type or repository. For a date or period without keywords or type it also returns the Vibe chats of that period as rows of type `vibe_chat` (the model does not always mention them; the digest always does). Lists of more than 6 rows are shortened: repo, author and time zone move to the top level |
 | `find_in_code` | Finds where something is implemented from the symbol index, and returns the matching lines of the best two files (windows chosen by keyword rarity, with the assignments behind the variables used on those lines). File text is cached per sha |
 | `search_memory` | Now accepts an optional `memory_type` (for example `decision`) |
 

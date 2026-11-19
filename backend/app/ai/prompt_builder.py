@@ -304,6 +304,12 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   new infrastructure (a database, Redis, a queue) unless the code
   already uses it. End with one line: these are suggestions only and
   the user applies them after reviewing.
+- CUT-OFF OR VAGUE QUESTIONS: when the question looks cut off or is too
+  short to tell what it means, begin with one line saying how you read
+  it (for example "I read this as: why did we choose Groq as the
+  fallback provider?"). If several saved decisions could match, name
+  them and ask which one.
+- In a table never put the | character inside a cell; write "or" instead.
 
 """
 

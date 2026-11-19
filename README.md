@@ -18,7 +18,7 @@ The answer is scattered. The code is on GitHub, the discussion was on Slack, the
 
 | You ask | What Vibe does |
 |---|---|
-| "What happened on 6 Oct?" | Looks up the saved history of that day: commits, pull requests, Slack messages, and your Vibe chats |
+| "What happened on 6 Oct?" | Looks up the saved history of that day: commits, pull requests and Slack messages (the weekly digest also lists your Vibe chats) |
 | "Why did we choose Groq as the fallback provider?" | Finds the decision you recorded, with the reason and the alternatives |
 | "What did the team say about the deployment on Slack?" | Searches your Slack workspace |
 | "Explain how the provider cooldown works" | Finds the right file in your code and explains it from the real lines |
@@ -86,6 +86,7 @@ In practice a typical question is answered in a few seconds. If you ask several 
 - The code index covers Python files only. Vibe shows the lines that match your question, not the whole file.
 - Saved history refreshes when you open Vibe (or press **Sync now**). It does not update by itself while the page is closed.
 - The "probably related" list is a guess from shared words and dates.
+- When you ask about one day in the chat, Vibe may not mention your own Vibe chats of that day. The weekly digest always lists them.
 - Vibe cannot answer questions about CI or test results, and it does not change anything on GitHub or Slack, by design.
 
 ## Roadmap

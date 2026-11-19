@@ -41,6 +41,53 @@ def _chats_line(chats: list) -> str:
     return "Vibe chats in this period: " + "; ".join(parts) + "."
 
 
+COMPACT_ABOVE = 6
+
+
+def _compact_events(events: list) -> tuple[list, dict]:
+    """Shorter rows for long lists so the whole list reaches the model (a long
+    list used to be cut). Values that repeat move to the top level."""
+
+    top: dict[str, Any] = {}
+    repos = {e["repo"] for e in events if e["type"] != "slack_message"}
+    authors = {e["author"] for e in events if e["author"]}
+
+    if len(repos) == 1:
+        top["repo"] = next(iter(repos))
+
+    if len(authors) == 1 and all(e["author"] for e in events):
+        top["author"] = next(iter(authors))
+
+    top["time_zone"] = "IST"
+
+    rows = []
+
+    for e in events:
+        row: dict[str, Any] = {
+            "type": e["type"],
+            "time": e["time"].replace(" IST", ""),
+            "title": e["title"],
+        }
+
+        if e["type"] == "slack_message":
+            row["channel"] = e["repo"]
+
+            if e["url"]:
+                row["url"] = e["url"]
+        elif "repo" not in top:
+            row["repo"] = e["repo"]
+
+        if "author" not in top and e["author"]:
+            row["author"] = e["author"]
+
+        if e["status"]:
+            row["status"] = e["status"]
+
+        rows.append(row)
+
+    return rows, top
+
+
 class HistorySearchTool(BaseTool):
     """
     Search the saved developer history (commits and pull requests that
@@ -222,6 +269,11 @@ class HistorySearchTool(BaseTool):
                 }
             )
 
+        top: dict[str, Any] = {}
+
+        if len(events) > COMPACT_ABOVE:
+            events, top = _compact_events(events)
+
         result: dict[str, Any] = {
             "success": True,
             "count": len(events),
@@ -235,6 +287,8 @@ class HistorySearchTool(BaseTool):
                 else None
             ),
         }
+
+        result.update(top)
 
         if chats:
             result["chats"] = chats
