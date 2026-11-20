@@ -324,3 +324,42 @@ def test_tracing_stays_inside_its_small_budget():
     snippet, cut = cidx.keyword_windows("\n".join(block), ["needle"], 3200)
 
     assert len(snippet) <= 3200
+
+
+# ---------------- the def/class line above a block ----------------
+
+def method_file():
+    lines = ["class Router:"]
+    lines += [f"    attr_{i} = {i}" for i in range(1, 79)]
+    lines.append("    def _record_failure(self, name, error):")
+    lines += [f"        step_{i}()" for i in range(1, 39)]
+    lines.append("        self._cooldowns[name] = time.monotonic() + 1800  # cooldown")
+    lines += [f"        after_{i}()" for i in range(1, 6)]
+
+    return "\n".join(lines)
+
+
+def test_the_def_line_above_a_block_is_added_so_the_function_can_be_named():
+    snippet, _ = cidx.keyword_windows(method_file(), ["cooldown"], 3200)
+
+    assert "80| " in snippet and "def _record_failure" in snippet
+    assert "119| " in snippet
+    assert "class Router" not in snippet
+
+
+def test_no_def_line_is_added_for_module_level_code():
+    lines = ["def helper():", "    return 1"]
+    lines += [f"value_{i} = {i}" for i in range(60)]
+    lines.append("run()  # needle")
+
+    snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 3200)
+
+    assert "needle" in snippet and "def helper" not in snippet
+
+
+def test_def_lines_never_push_the_snippet_over_the_budget():
+    lines = ["class Router:", "    def method(self):"] + ["        needle " + "x" * 90] * 200
+
+    snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 1200)
+
+    assert len(snippet) <= 1200

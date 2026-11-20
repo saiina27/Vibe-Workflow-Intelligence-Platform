@@ -817,6 +817,9 @@ TRACE_BUDGET = 900
 TRACE_LOOKBACK = 30
 TRACE_CONTEXT = 2
 MAX_TRACED_IDENTS = 3
+HEADER_RESERVE = 300
+HEADER_LOOKBACK = 60
+_HEADER = re.compile(r"^\s*(?:async\s+def|def|class)\s+\w+")
 
 TRACE_SKIP = {
     "self", "cls", "none", "true", "false", "return", "print", "time",
@@ -907,6 +910,8 @@ def keyword_windows(
     included: set[int] = set()
     used = 0
     truncated = False
+    # keep a little room for the def/class lines added at the end
+    cap = max_chars - HEADER_RESERVE if max_chars >= 1000 else max_chars
 
     def add(a: int, b: int, limit: int) -> bool:
         nonlocal used, truncated
@@ -945,10 +950,10 @@ def keyword_windows(
                     add(j - TRACE_CONTEXT, j + TRACE_CONTEXT, trace_limit)
 
         for i in primary:
-            add(i - context, i + context, max_chars)
+            add(i - context, i + context, cap)
 
         for i in rest:
-            add(i - context, i + context, max_chars)
+            add(i - context, i + context, cap)
 
     elif fallback_line:
         for j in range(max(0, fallback_line - 2), min(total - 1, fallback_line + 28) + 1):
@@ -957,6 +962,37 @@ def keyword_windows(
 
     else:
         return "", False
+
+    # The def/class line above each block, so the snippet shows which function
+    # a block belongs to (without it the model can name the wrong function).
+    if included and max_chars >= 1000:
+        for start in [j for j in sorted(included) if j - 1 not in included]:
+            base = next(
+                (
+                    len(lines[k]) - len(lines[k].lstrip())
+                    for k in range(start, min(start + 6, total))
+                    if k in included and lines[k].strip()
+                ),
+                0,
+            )
+
+            if base == 0:
+                continue
+
+            for j in range(start - 1, max(-1, start - HEADER_LOOKBACK - 1), -1):
+                if j in included:
+                    break
+
+                line = lines[j]
+
+                if _HEADER.match(line) and len(line) - len(line.lstrip()) < base:
+                    cost = len(rows[j]) + 1
+
+                    if used + cost <= max_chars:
+                        included.add(j)
+                        used += cost
+
+                    break
 
     out: list[str] = []
     previous = None

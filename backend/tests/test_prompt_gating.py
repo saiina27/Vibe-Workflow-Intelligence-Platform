@@ -100,7 +100,7 @@ def test_capability_questions_get_the_full_table(text):
     prompt = prompt_for(text)
 
     assert CAP_TABLE in prompt
-    assert "Preserve all nine capability categories" in prompt
+    assert "Preserve all ten capability categories" in prompt
 
 
 @pytest.mark.parametrize(
