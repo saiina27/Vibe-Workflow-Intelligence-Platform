@@ -241,6 +241,7 @@ MAX_RELATED_ITEMS = 400
 GENERIC_SHARE = 0.3
 LINK_WINDOW_DAYS = 1
 DECISION_WINDOW_DAYS = 7
+MIN_SHARED_WORDS = 2
 
 STOPWORDS = {
     "about", "added", "adding", "after", "again", "before", "being", "change",
@@ -334,7 +335,7 @@ def find_related(days) -> list:
 
             shared = (token_sets[a] & token_sets[b]) - generic
 
-            if shared:
+            if len(shared) >= MIN_SHARED_WORDS:
                 pairs.append((len(shared), a, b, sorted(shared)))
 
     pairs.sort(key=lambda p: (-p[0], p[1], p[2]))

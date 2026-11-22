@@ -1,4 +1,5 @@
 import importlib
+import json
 import pkgutil
 from datetime import datetime
 from types import SimpleNamespace
@@ -95,7 +96,10 @@ def test_the_executor_sends_the_cleaned_keywords_to_slack():
 
     executor.execute("slack_search_public", {"keywords": ["deployment", "team"]})
 
-    assert client.calls == [("slack_search_public", {"keywords": ["deployment"]})]
+    # message searches are asked for in the detailed format (it has the links)
+    assert client.calls == [
+        ("slack_search_public", {"keywords": ["deployment"], "response_format": "detailed"})
+    ]
 
 
 # ---------------- search_history includes Slack ----------------
@@ -162,3 +166,93 @@ def test_the_slack_rule_says_what_an_empty_search_means():
     assert "no Slack message matched X" in prompt
     assert "try that once before answering" in prompt
     assert "search_history" in prompt
+
+
+# ---------------- Slack results with links ----------------
+
+RAW = (
+    "# Search Results for: \n\n## Messages (1 results)\n### Result 1 of 1\n"
+    "Channel: #dev-updates (ID: C0C7YC4CBT2)\n"
+    "From: saiina27 (ID: U0BTS5XB1D0) \n"
+    "Time: 2026-10-06 19:17:15 IST\n"
+    "Message_ts: 1791294435.376399\n"
+    "Permalink: [link](https://vibe-development.slack.com/archives/C0C7YC4CBT2/p1791294435376399)\n"
+    "Text: \nDeployment failed on Render, checking logs\n"
+    "Context before: \n- From: (ID: U00) \n Message_ts: 1791294396.034029\n"
+    " <@U0BTS5XB1D0|saiina27> has joined the channel\n"
+    "Context after: \n- From: saiina27 (ID: U0BTS5XB1D0) \n Message_ts: 1791294476.060729\n"
+    " We decided to use Groq as the fallback provider\n\n---\n\n"
+)
+SLACK_TEXT = json.dumps({"results": RAW, "pagination_info": "End of results"})
+
+
+def test_the_detailed_format_is_asked_for_only_on_message_searches():
+    from app.ai.tools.slack_args import prefer_detailed
+
+    assert prefer_detailed("slack_search_public", {"keywords": ["a"]})["response_format"] == "detailed"
+    assert prefer_detailed("slack_search_public_and_private", {})["response_format"] == "detailed"
+
+    channels = {"keywords": ["a"]}
+    assert prefer_detailed("slack_search_channels", channels) is channels
+
+    done = {"response_format": "detailed"}
+    assert prefer_detailed("slack_search_public", done) is done
+    assert prefer_detailed("list_commits", None) is None
+
+
+def test_a_slack_result_becomes_rows_with_links_and_no_context():
+    from app.ai.tools.slack_args import compact_slack_result
+
+    original = {"success": True, "data": {"content": [{"type": "text", "text": SLACK_TEXT}], "is_error": False}}
+    out = compact_slack_result("slack_search_public", original)
+    rows = json.loads(out["data"]["content"][0]["text"])
+
+    assert rows["count"] == 1
+    assert rows["messages"][0] == {
+        "channel": "#dev-updates", "from": "saiina27", "time": "2026-10-06 19:17:15 IST",
+        "link": "https://vibe-development.slack.com/archives/C0C7YC4CBT2/p1791294435376399",
+        "text": "Deployment failed on Render, checking logs",
+    }
+    assert "joined the channel" not in json.dumps(out)
+    assert original["data"]["content"][0]["text"] == SLACK_TEXT
+
+
+def test_unexpected_slack_results_are_left_alone():
+    from app.ai.tools.slack_args import compact_slack_result
+
+    concise = {"data": {"content": [{"type": "text", "text": '{"results":"1. #dev-updates - saiina27: hi"}'}]}}
+
+    assert compact_slack_result("slack_search_public", concise) is concise
+    assert compact_slack_result("slack_search_channels", concise) is concise
+    assert compact_slack_result("slack_search_public", "plain text") == "plain text"
+    assert compact_slack_result("slack_search_public", {"data": None}) == {"data": None}
+
+
+def test_the_executor_asks_for_detail_and_returns_links():
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def call_tool(self, tool_name, arguments):
+            self.calls.append((tool_name, arguments))
+            return {"content": [{"type": "text", "text": SLACK_TEXT}], "is_error": False}
+
+    client = Client()
+    registry = ToolRegistry()
+    registry.register(MCPToolAdapter(
+        client=client,
+        tool=SimpleNamespace(name="slack_search_public", description="d",
+                             input_schema={"type": "object", "properties": {}}),
+        plugin_name="slack",
+    ))
+
+    executor = ToolExecutor(
+        registry, ToolContext(db=None, workspace_id=1, user_id=1),
+        mcp_permission_service=AllowAll(),
+    )
+
+    result = executor.execute("slack_search_public", {"keywords": ["deployment", "team"], "response_format": "concise"})
+
+    assert client.calls == [("slack_search_public", {"keywords": ["deployment"], "response_format": "detailed"})]
+    assert "vibe-development.slack.com/archives/C0C7YC4CBT2/p1791294435376399" in json.dumps(result, default=str)
+    assert "joined the channel" not in json.dumps(result, default=str)

@@ -2,7 +2,11 @@ import time
 from typing import Any
 
 from app.ai.tools.registry import ToolRegistry, is_blocked_write_tool
-from app.ai.tools.slack_args import clean_slack_keywords
+from app.ai.tools.slack_args import (
+    clean_slack_keywords,
+    compact_slack_result,
+    prefer_detailed,
+)
 from app.ai.tools.context import ToolContext
 from app.mcp.permissions import MCPPermissionService
 from app.mcp.tool_adapter import MCPToolAdapter
@@ -177,6 +181,7 @@ class ToolExecutor:
         # ====================================================
 
         arguments = clean_slack_keywords(tool_name, arguments)
+        arguments = prefer_detailed(tool_name, arguments)
 
         started = time.perf_counter()
 
@@ -186,6 +191,7 @@ class ToolExecutor:
                 tool_name,
                 arguments,
             )
+            result = compact_slack_result(tool_name, result)
 
             print(
                 f"⏱️ tool {tool_name} ran in "

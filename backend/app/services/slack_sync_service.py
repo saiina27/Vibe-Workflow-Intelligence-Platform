@@ -338,3 +338,42 @@ def run_slack_auto_sync(db, user_id: int, now=None, make_call=None, connect=None
                 print(f"💬 Slack auto-sync failed for '{name}': {str(exc)[:120]}")
 
     return results
+
+
+def parse_slack_messages(text: str, limit: int = 300) -> list:
+    """The messages of one search result for answering in chat: channel,
+    author, time (as Slack shows it), link and the cleaned text. The
+    "Context before/after" lines are left out."""
+
+    raw = text or ""
+
+    try:
+        outer = json.loads(raw)
+
+        if isinstance(outer, dict) and isinstance(outer.get("results"), str):
+            raw = outer["results"]
+    except ValueError:
+        pass
+
+    out = []
+
+    for block in _BLOCK.split(raw)[1:]:
+        channel = _CHANNEL.match(_field(block, "Channel"))
+
+        if not channel:
+            continue
+
+        body = _BODY.search(block)
+        link = _LINK.search(_field(block, "Permalink").replace("\\/", "/"))
+
+        out.append(
+            {
+                "channel": f"#{channel.group(1)}",
+                "from": re.sub(r"\s*\(ID:.*$", "", _field(block, "From")).strip() or None,
+                "time": _field(block, "Time") or None,
+                "link": link.group(1) if link else None,
+                "text": clean_snippet(body.group(1) if body else "", limit) or "(no text)",
+            }
+        )
+
+    return out

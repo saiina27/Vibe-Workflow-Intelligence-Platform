@@ -147,6 +147,108 @@ def is_blocked_write_tool(name: str) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Wider phrasing for routing. These decide which tools the model gets, so they
+# have to cope with different words, Hinglish and half-finished sentences.
+# ---------------------------------------------------------------------------
+
+EXTRA_GITHUB_WORDS = {
+    "push", "pushed", "pushes", "pushing", "committed", "merged",
+}
+
+PEOPLE_WORDS = {
+    "anyone", "someone", "somebody", "everyone", "everybody",
+    "colleague", "colleagues", "teammate", "teammates",
+}
+
+SPEECH_WORDS = {
+    "mention", "mentioned", "mentions", "say", "said", "says", "talk",
+    "talked", "talking", "discuss", "discussed", "post", "posted", "wrote",
+    "reply", "replied", "raise", "raised", "report", "reported",
+    "complain", "complained", "bola", "bole", "kaha", "likha",
+}
+
+CODE_NOUNS = {
+    "router", "provider", "providers", "limiter", "ratelimit", "cooldown",
+    "handler", "handlers", "middleware", "endpoint", "endpoints", "route",
+    "routes", "service", "services", "schema", "schemas", "migration",
+    "migrations", "decorator", "method", "methods", "variable", "variables",
+    "script", "scripts", "config", "pipeline", "parser", "retry", "retries",
+    "fallback", "cache", "caching", "auth", "authentication", "login",
+    "token", "tokens", "sync", "executor", "registry", "gateway", "session",
+    "sessions", "database", "prompt", "prompts", "tool", "tools",
+    "dependency", "dependencies", "function", "functions",
+}
+
+SOFT_IMPROVE_WORDS = {
+    "better", "behtar", "sudhar", "sudhaar", "cleaner", "simplify",
+    "weakness", "weaknesses", "flaws", "smells",
+}
+
+IMPROVE_ANCHORS = {
+    "code", "logic", "function", "functions", "module", "class", "file", "files",
+} | CODE_NOUNS
+
+WORK_WORDS = {"work", "working", "works"}
+
+TIME_WORDS = {
+    "yesterday", "today", "tomorrow", "week", "weeks", "month", "months",
+    "ago", "aaj", "kal", "hafte", "done", "hours", "days",
+}
+
+CODE_QUESTION_PATTERN = re.compile(
+    r"\bhow (?:does|do|did|is|are)\b"
+    r"|\bwhat does\b"
+    r"|\bwalk (?:me )?through\b"
+    r"|\bexplain\b"
+    r"|\bsamjh\w*"
+    r"|\bkaam\s+kar\w*"
+    r"|\bkaise\s+(?:kaam|chal|hota|hoti|hote)\w*"
+    r"|\bkya\s+kar(?:ta|ti|te)\b"
+)
+
+IDENTIFIER_PATTERN = re.compile(
+    r"\b_?[a-z][a-z0-9]*_[a-z0-9_]+\b"
+    r"|\b[\w./-]+\.(?:py|js|ts|tsx|jsx|json|yaml|yml|toml)\b"
+    r"|\b[a-z]+[A-Z][A-Za-z0-9]*\b"
+)
+
+
+def asks_about_people(words) -> bool:
+    """"did anyone mention X": a question about what people said, so Slack."""
+
+    return bool(words & PEOPLE_WORDS and words & SPEECH_WORDS)
+
+
+def looks_like_improvement_question(text) -> bool:
+    words = set(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+    return bool(words & SOFT_IMPROVE_WORDS and words & IMPROVE_ANCHORS)
+
+
+def looks_like_code_question(text) -> bool:
+    """A question about how something in the user's own code works or could
+    be better, however it is worded."""
+
+    text = text or ""
+    lowered = text.lower()
+    words = set(re.findall(r"[a-z0-9]+", lowered))
+
+    hits = words & CODE_EXPLAIN_WORDS
+
+    # "work done yesterday" is about activity, not about how code works
+    if hits and not (hits <= WORK_WORDS and words & TIME_WORDS):
+        return True
+
+    if IDENTIFIER_PATTERN.search(text):
+        return True
+
+    if CODE_QUESTION_PATTERN.search(lowered) and words & CODE_NOUNS:
+        return True
+
+    return looks_like_improvement_question(text)
+
+
 class ToolRegistry:
     """
     Registry for Vibe AI tools.
@@ -350,7 +452,7 @@ class ToolRegistry:
 
         slack = bool(
             words & (SLACK_INTENT_WORDS | decision_words)
-        ) or "only use slack" in lowered
+        ) or "only use slack" in lowered or asks_about_people(words)
 
         return github, slack
 
@@ -380,7 +482,7 @@ class ToolRegistry:
             "pr", "prs",
         }
 
-        if words & strong or "pull request" in text:
+        if words & strong or words & EXTRA_GITHUB_WORDS or "pull request" in text:
             return True
 
         weak = {
@@ -389,7 +491,7 @@ class ToolRegistry:
         }
         owner = {"my", "mine", "our"}
 
-        if words & weak and words & owner:
+        if words & weak and (words & owner or ToolRegistry._has_tracked_repos(prompt)):
             return True
 
         # "any update / progress on my project (or Vibe)" -> GitHub activity
@@ -406,7 +508,7 @@ class ToolRegistry:
 
         return (
             ToolRegistry._has_tracked_repos(prompt)
-            and bool(words & CODE_EXPLAIN_WORDS)
+            and looks_like_code_question(ToolRegistry._intent_text(prompt))
         )
 
     @staticmethod
@@ -450,7 +552,7 @@ class ToolRegistry:
         }:
             matched.append(GITHUB_SEARCH_TOOLS)
 
-        if words & CODE_EXPLAIN_WORDS:
+        if looks_like_code_question(ToolRegistry._intent_text(prompt)):
             matched.append(GITHUB_CODE_EXPLAIN_TOOLS)
 
         if not matched:

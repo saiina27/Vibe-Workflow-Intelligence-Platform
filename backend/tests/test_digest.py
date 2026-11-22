@@ -371,7 +371,7 @@ def test_related_pairs_are_capped_and_each_item_is_used_once():
     events = []
 
     for i in range(20):
-        word = f"keyword{i:02d}"
+        word = f"keyword{i:02d} another{i:02d}"
         events.append(slack_message(3, 1, title=f"{word} came up", ext=f"C:{i}"))
         events.append(commit(3, 2, title=f"{word} was fixed", sha=f"{i:040x}"))
 
@@ -415,3 +415,13 @@ def test_the_words_of_the_decision_format_do_not_link_a_commit_to_a_decision():
     )
 
     assert data["related"] == []
+
+
+def test_a_single_shared_word_is_not_enough_to_link_two_items():
+    data, text = build(events=[
+        commit(3, 4, title="README: accurate wording for groups", sha="a" * 40),
+        pull_request(3, title="Add test line for PR check in README"),
+    ])
+
+    assert data["related"] == []
+    assert "Probably related" not in text

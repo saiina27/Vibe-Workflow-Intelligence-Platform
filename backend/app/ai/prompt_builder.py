@@ -1,7 +1,13 @@
 import re
 from datetime import datetime, timedelta
 
-from app.ai.tools.registry import CODE_EXPLAIN_WORDS, SLACK_INTENT_WORDS
+from app.ai.tools.registry import (
+    CODE_EXPLAIN_WORDS,
+    SLACK_INTENT_WORDS,
+    asks_about_people,
+    looks_like_code_question,
+    looks_like_improvement_question,
+)
 
 from app.models.conversation_summary import ConversationSummary
 from app.models.message import Message
@@ -502,14 +508,18 @@ def _rule_flags(history, tracked=False) -> tuple[bool, bool, bool]:
     tool_rules = bool(words & TOOL_RULE_WORDS) or bool(
         _DATE_PATTERN.search(lowered)
     )
-    decision = bool(words & DECISION_WORDS)
+    decision = bool(words & DECISION_WORDS) or looks_like_improvement_question(text)
 
     # With a tracked repository, "how does X work" is a code question.
-    if tracked and words & CODE_EXPLAIN_WORDS:
+    if tracked and looks_like_code_question(text):
         tool_rules = True
 
     return capability, tool_rules, decision
 
+
+TOOL_RULE_WORDS = set(TOOL_RULE_WORDS) | {
+    "push", "pushed", "pushes", "pushing", "committed",
+}
 
 _SLACK_ANSWERS_START = "- SLACK ANSWERS:"
 _SLACK_ANSWERS_END = "try that once before answering.\n"
@@ -554,7 +564,9 @@ def _wants_slack_rules(history) -> bool:
 
     words = set(re.findall(r"[a-z0-9]+", text.lower()))
 
-    return bool(words & (SLACK_INTENT_WORDS | _SLACK_DECISION_WORDS | {"slack"}))
+    return bool(
+        words & (SLACK_INTENT_WORDS | _SLACK_DECISION_WORDS | {"slack"})
+    ) or asks_about_people(words)
 
 
 def _system_prompt(history, tracked_repos=None) -> str:
