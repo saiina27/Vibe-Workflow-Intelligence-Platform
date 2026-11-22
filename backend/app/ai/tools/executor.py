@@ -4,6 +4,7 @@ from typing import Any
 from app.ai.tools.registry import ToolRegistry, is_blocked_write_tool
 from app.ai.tools.slack_args import (
     clean_slack_keywords,
+    broaden_slack_search,
     compact_slack_result,
     prefer_detailed,
 )
@@ -190,6 +191,12 @@ class ToolExecutor:
                 tool,
                 tool_name,
                 arguments,
+            )
+            result = broaden_slack_search(
+                tool_name,
+                arguments,
+                result,
+                lambda args: self._execute_with_retry(tool, tool_name, args),
             )
             result = compact_slack_result(tool_name, result)
 

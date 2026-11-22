@@ -256,3 +256,115 @@ def test_the_executor_asks_for_detail_and_returns_links():
     assert client.calls == [("slack_search_public", {"keywords": ["deployment"], "response_format": "detailed"})]
     assert "vibe-development.slack.com/archives/C0C7YC4CBT2/p1791294435376399" in json.dumps(result, default=str)
     assert "joined the channel" not in json.dumps(result, default=str)
+
+
+# ---------------- result objects, and widening an empty search ----------------
+
+EMPTY = json.dumps({"results": "# Search Results for: \n\nNo results found.\n"})
+
+
+def raw(text):
+    return {"content": [{"type": "text", "text": text}], "is_error": False}
+
+
+class FakeContent:
+    def __init__(self, text):
+        self.type = "text"
+        self.text = text
+
+
+class FakeCallToolResult:
+    """Like the MCP client's result: an object, not a dict."""
+
+    def __init__(self, text):
+        self.content = [FakeContent(text)]
+        self.isError = False
+
+
+def test_an_object_shaped_mcp_result_is_read_too():
+    from app.ai.tools.slack_args import compact_slack_result
+
+    out = compact_slack_result(
+        "slack_search_public", {"success": True, "data": FakeCallToolResult(SLACK_TEXT)}
+    )
+    rows = json.loads(out["data"]["content"][0]["text"])
+
+    assert rows["messages"][0]["link"].startswith("https://vibe-development.slack.com/")
+
+
+def test_when_no_message_has_all_the_words_each_word_is_tried_alone():
+    from app.ai.tools.slack_args import broaden_slack_search
+
+    calls = []
+
+    def run(arguments):
+        calls.append(arguments["keywords"])
+        return raw(SLACK_TEXT if arguments["keywords"] == ["render"] else EMPTY)
+
+    out = broaden_slack_search(
+        "slack_search_public",
+        {"keywords": ["render", "failure"], "response_format": "detailed"},
+        raw(EMPTY),
+        run,
+    )
+    rows = json.loads(out["data"]["content"][0]["text"])
+
+    assert calls == [["render"], ["failure"]]
+    assert rows["count"] == 1 and rows["messages"][0]["matched"] == ["render"]
+    assert "No message contains all of: render, failure" in rows["note"]
+
+
+def test_nothing_is_widened_when_it_is_not_needed():
+    from app.ai.tools.slack_args import broaden_slack_search
+
+    def forbidden(arguments):
+        raise AssertionError("must not search again")
+
+    found = raw(SLACK_TEXT)
+    empty = raw(EMPTY)
+
+    assert broaden_slack_search("slack_search_public", {"keywords": ["a", "b"]}, found, forbidden) is found
+    assert broaden_slack_search("slack_search_public", {"keywords": ["a"]}, empty, forbidden) is empty
+    assert broaden_slack_search("slack_search_channels", {"keywords": ["a", "b"]}, empty, forbidden) is empty
+
+
+def test_failing_or_empty_word_searches_return_the_original_result():
+    from app.ai.tools.slack_args import broaden_slack_search
+
+    empty = raw(EMPTY)
+
+    def boom(arguments):
+        raise RuntimeError("Slack said no")
+
+    assert broaden_slack_search("slack_search_public", {"keywords": ["a", "b"]}, empty, boom) is empty
+    assert broaden_slack_search("slack_search_public", {"keywords": ["a", "b"]}, empty, lambda a: raw(EMPTY)) is empty
+
+
+def test_the_executor_widens_an_empty_search_and_returns_links():
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def call_tool(self, tool_name, arguments):
+            self.calls.append(arguments["keywords"])
+            text = SLACK_TEXT if arguments["keywords"] == ["render"] else EMPTY
+            return {"content": [{"type": "text", "text": text}], "is_error": False}
+
+    client = Client()
+    registry = ToolRegistry()
+    registry.register(MCPToolAdapter(
+        client=client,
+        tool=SimpleNamespace(name="slack_search_public", description="d",
+                             input_schema={"type": "object", "properties": {}}),
+        plugin_name="slack",
+    ))
+
+    executor = ToolExecutor(
+        registry, ToolContext(db=None, workspace_id=1, user_id=1),
+        mcp_permission_service=AllowAll(),
+    )
+
+    result = executor.execute("slack_search_public", {"keywords": ["render", "failure"]})
+
+    assert client.calls == [["render", "failure"], ["render"], ["failure"]]
+    assert "vibe-development.slack.com" in json.dumps(result, default=str)

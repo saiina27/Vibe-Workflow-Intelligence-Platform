@@ -12,6 +12,7 @@ from app.services import code_index_service as cidx
 MAX_RESULTS = 8
 MAX_CODE_FILES = 2
 CACHE_FILES = 40
+NOT_ANCHORED = {"class", "constant", "const", "variable"}
 
 # File text by (repo, path, sha): the same sha is always the same text.
 _FILE_CACHE: "OrderedDict[tuple, str]" = OrderedDict()
@@ -148,6 +149,21 @@ class CodeSearchTool(BaseTool):
     def _snippets(self, rows, words) -> list[dict]:
         tokens = cidx.tokenize(words)
 
+        # Functions and methods the index matched by name: their bodies are
+        # shown even when the body has none of the keywords.
+        anchors: dict = {}
+
+        for row in rows:
+            kind = str(getattr(row, "kind", "")).lower()
+
+            if kind in NOT_ANCHORED or not getattr(row, "line", None):
+                continue
+
+            bucket = anchors.setdefault((row.repo, row.path), [])
+
+            if len(bucket) < 2:
+                bucket.append(row.line)
+
         targets = []
         seen = set()
 
@@ -184,7 +200,8 @@ class CodeSearchTool(BaseTool):
             limit = cidx.FIRST_FILE_CHARS if index == 0 else cidx.SECOND_FILE_CHARS
 
             snippet, cut = cidx.keyword_windows(
-                text, tokens, limit, fallback_line=target[2]
+                text, tokens, limit, fallback_line=target[2],
+                anchors=anchors.get((target[0], target[1])),
             )
 
             if snippet:

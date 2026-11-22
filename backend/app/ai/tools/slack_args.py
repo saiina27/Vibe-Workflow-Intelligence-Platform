@@ -82,18 +82,46 @@ def prefer_detailed(tool_name: str, arguments: Any) -> Any:
     return out
 
 
-def _text_items(node: Any, found: list, depth: int = 0) -> None:
-    if depth > 4 or not isinstance(node, dict):
-        return
+def slack_messages_of(result: Any) -> list:
+    """The messages of a Slack search result, whatever shape the MCP client
+    returned (a dict, or an object with `content`). Same reader as the sync."""
 
-    content = node.get("content")
+    try:
+        from app.services import dev_events_service as dev
+        from app.services.slack_sync_service import parse_slack_messages
 
-    if isinstance(content, list):
-        for item in content:
-            if isinstance(item, dict) and isinstance(item.get("text"), str):
-                found.append(item)
+        return parse_slack_messages(dev.result_text(result))
+    except Exception:
+        return []
 
-    _text_items(node.get("data"), found, depth + 1)
+
+def _raw_text(result: Any) -> str:
+    try:
+        from app.services import dev_events_service as dev
+
+        return dev.result_text(result) or ""
+    except Exception:
+        return ""
+
+
+def build_slack_result(messages: list, note: str | None = None) -> dict:
+    import json
+
+    payload = {
+        "count": len(messages),
+        "messages": messages,
+        "note": note or "Show the link of every message you mention.",
+    }
+
+    return {
+        "success": True,
+        "data": {
+            "content": [
+                {"type": "text", "text": json.dumps(payload, ensure_ascii=False)}
+            ],
+            "is_error": False,
+        },
+    }
 
 
 def compact_slack_result(tool_name: str, result: Any) -> Any:
@@ -103,36 +131,59 @@ def compact_slack_result(tool_name: str, result: Any) -> Any:
     if tool_name not in SLACK_MESSAGE_TOOLS:
         return result
 
-    try:
-        import copy
-        import json
+    messages = slack_messages_of(result)
 
-        from app.services.slack_sync_service import parse_slack_messages
-
-        clone = copy.deepcopy(result)
-        found: list = []
-        _text_items(clone, found)
-
-        if not found:
-            return result
-
-        messages = parse_slack_messages(found[0]["text"])
-
-        if not messages:
-            return result
-
-        found[0]["text"] = json.dumps(
-            {
-                "count": len(messages),
-                "messages": messages,
-                "note": "Show the link of every message you mention.",
-            },
-            ensure_ascii=False,
-        )
-
-        print(f"💬 Slack result: {len(messages)} messages with links")
-
-        return clone
-
-    except Exception:
+    if not messages:
         return result
+
+    print(f"💬 Slack result: {len(messages)} messages with links")
+
+    return build_slack_result(messages)
+
+
+def broaden_slack_search(tool_name: str, arguments: Any, result: Any, run) -> Any:
+    """Slack needs every keyword in one message. When nothing matched all of
+    several words, try each word alone and return what matches any of them,
+    saying which word matched. `run(arguments)` repeats the search."""
+
+    if tool_name not in SLACK_MESSAGE_TOOLS or not isinstance(arguments, dict):
+        return result
+
+    keywords = arguments.get("keywords")
+
+    if not isinstance(keywords, list):
+        return result
+
+    words = [str(k).strip() for k in keywords if str(k).strip()][:3]
+
+    if len(words) < 2 or "no results found" not in _raw_text(result).lower():
+        return result
+
+    merged: dict = {}
+
+    for word in words:
+        try:
+            one = run({**arguments, "keywords": [word]})
+        except Exception:
+            continue
+
+        for message in slack_messages_of(one):
+            key = message["link"] or (message["channel"], message["time"], message["text"])
+            entry = merged.setdefault(key, {"message": message, "words": []})
+            entry["words"].append(word)
+
+    if not merged:
+        return result
+
+    ordered = sorted(merged.values(), key=lambda e: -len(e["words"]))[:10]
+    messages = [dict(e["message"], matched=e["words"]) for e in ordered]
+
+    print(f"💬 Slack search widened: {len(messages)} messages match some of {words}")
+
+    return build_slack_result(
+        messages,
+        "No message contains all of: "
+        + ", ".join(words)
+        + ". These messages contain at least one of the words (see matched). "
+        "Say which word matched and show the link.",
+    )

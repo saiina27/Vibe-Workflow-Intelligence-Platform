@@ -819,6 +819,8 @@ TRACE_CONTEXT = 2
 MAX_TRACED_IDENTS = 3
 HEADER_RESERVE = 300
 HEADER_LOOKBACK = 60
+ANCHOR_SPAN = 45
+ANCHOR_BUDGET = 1300
 _HEADER = re.compile(r"^\s*(?:async\s+def|def|class)\s+\w+")
 
 TRACE_SKIP = {
@@ -876,6 +878,7 @@ def keyword_windows(
     max_chars: int,
     fallback_line: int | None = None,
     context: int = SNIPPET_CONTEXT,
+    anchors: list[int] | None = None,
 ) -> tuple[str, bool]:
     """
     Numbered lines around the lines that match the most specific
@@ -948,6 +951,47 @@ def keyword_windows(
             if traced and add(i, i, trace_limit):
                 for j in traced:
                     add(j - TRACE_CONTEXT, j + TRACE_CONTEXT, trace_limit)
+
+        # The body of the functions the index matched by name, so a question
+        # about one function sees all of it, not only the lines that carry a
+        # keyword. Each one gets a share of a small budget.
+        per_anchor = ANCHOR_BUDGET // max(1, len(anchors or []))
+
+        for line_no in anchors or []:
+            start = line_no - 1
+
+            if not (0 <= start < total):
+                continue
+
+            indent = len(lines[start]) - len(lines[start].lstrip())
+            end = start
+
+            for k in range(start + 1, min(total, start + ANCHOR_SPAN + 1)):
+                current = lines[k]
+
+                if (
+                    current.strip()
+                    and len(current) - len(current.lstrip()) <= indent
+                    and _HEADER.match(current)
+                ):
+                    break
+
+                end = k
+
+            limit = min(cap, used + per_anchor)
+
+            for j in range(start, end + 1):
+                if j in included:
+                    continue
+
+                cost = len(rows[j]) + 1
+
+                if used + cost > limit:
+                    truncated = True
+                    break
+
+                included.add(j)
+                used += cost
 
         for i in primary:
             add(i - context, i + context, cap)

@@ -363,3 +363,44 @@ def test_def_lines_never_push_the_snippet_over_the_budget():
     snippet, _ = cidx.keyword_windows("\n".join(lines), ["needle"], 1200)
 
     assert len(snippet) <= 1200
+
+
+# ---------------- the body of a function matched by name ----------------
+
+def function_file():
+    lines = [f"filler {i}" for i in range(1, 100)]
+    lines[4] = "# provider notes"
+    lines[39] = "    def _select_provider(self, request):"
+    lines[40:50] = [f"        step_{i}()" for i in range(10)]
+    lines[50] = "    def other(self):"
+    lines[51] = "        later()"
+
+    return "\n".join(lines)
+
+
+def test_the_body_of_a_matched_function_is_shown_without_keywords_in_it():
+    with_anchor, _ = cidx.keyword_windows(function_file(), ["provider"], 3200, anchors=[40])
+    without, _ = cidx.keyword_windows(function_file(), ["provider"], 3200)
+
+    assert "50| " in with_anchor and "def other" not in with_anchor
+    assert "50| " not in without
+
+
+def test_anchors_stay_inside_the_budget_and_ignore_bad_lines():
+    snippet, _ = cidx.keyword_windows(
+        function_file(), ["provider"], 1200, anchors=[40, 9999, 0, -5]
+    )
+
+    assert len(snippet) <= 1200
+
+
+def test_the_tool_anchors_functions_but_not_classes(db):
+    rows = [
+        SimpleNamespace(repo=REPO, path=ROUTER, line=40, kind="method",
+                        qualname="ProviderRouter._select_provider"),
+        SimpleNamespace(repo=REPO, path=ROUTER, line=2, kind="class", qualname="ProviderRouter"),
+    ]
+    tool = make_tool(db, {ROUTER: function_file()})
+    out = tool._snippets(rows, ["provider"])
+
+    assert "50| " in out[0]["lines"]
