@@ -66,7 +66,22 @@ def clean_slack_keywords(tool_name: str, arguments: Any) -> Any:
 # message) and hand the model compact rows instead of the raw text.
 # ---------------------------------------------------------------------------
 
+import contextvars
+
 SLACK_MESSAGE_TOOLS = {"slack_search_public", "slack_search_public_and_private"}
+
+# Sync saves the messages, so it needs the raw text of a search. Only answers
+# in chat get the compact rows. A sync call sets this flag around the call.
+_RAW = contextvars.ContextVar("slack_raw_result", default=False)
+
+
+def raw_slack_call(fn):
+    token = _RAW.set(True)
+
+    try:
+        return fn()
+    finally:
+        _RAW.reset(token)
 
 
 def prefer_detailed(tool_name: str, arguments: Any) -> Any:
@@ -128,7 +143,7 @@ def compact_slack_result(tool_name: str, result: Any) -> Any:
     """Messages with channel, author, time and link, without the context
     lines. Anything unexpected is returned untouched."""
 
-    if tool_name not in SLACK_MESSAGE_TOOLS:
+    if tool_name not in SLACK_MESSAGE_TOOLS or _RAW.get():
         return result
 
     messages = slack_messages_of(result)
@@ -146,7 +161,11 @@ def broaden_slack_search(tool_name: str, arguments: Any, result: Any, run) -> An
     several words, try each word alone and return what matches any of them,
     saying which word matched. `run(arguments)` repeats the search."""
 
-    if tool_name not in SLACK_MESSAGE_TOOLS or not isinstance(arguments, dict):
+    if (
+        tool_name not in SLACK_MESSAGE_TOOLS
+        or not isinstance(arguments, dict)
+        or _RAW.get()
+    ):
         return result
 
     keywords = arguments.get("keywords")

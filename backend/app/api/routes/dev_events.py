@@ -346,7 +346,11 @@ async def slack_caller(db: Session, workspace_id: int, user_id: int):
         if tool_name not in slack_svc.ALLOWED_SLACK_SYNC_TOOLS:
             raise PermissionError(f"Tool '{tool_name}' is not allowed for sync.")
 
-        return executor.execute(tool_name=tool_name, arguments=arguments)
+        from app.ai.tools.slack_args import raw_slack_call
+
+        return raw_slack_call(
+            lambda: executor.execute(tool_name=tool_name, arguments=arguments)
+        )
 
     # The Slack connection is shared with the chat, so it stays open.
     yield call

@@ -281,7 +281,11 @@ def _make_call(db, workspace_id: int, user_id: int, registry):
         if tool_name not in ALLOWED_SLACK_SYNC_TOOLS:
             raise PermissionError(f"Tool '{tool_name}' is not allowed for sync.")
 
-        return executor.execute(tool_name=tool_name, arguments=arguments)
+        from app.ai.tools.slack_args import raw_slack_call
+
+        return raw_slack_call(
+            lambda: executor.execute(tool_name=tool_name, arguments=arguments)
+        )
 
     return call
 
