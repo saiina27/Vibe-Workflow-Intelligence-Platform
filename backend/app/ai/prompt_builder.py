@@ -302,7 +302,8 @@ _DECISION_RULES = """DECISION QUESTIONS AND EXPLAIN MODE:
   "General idea, not from your code".
 - CODE IMPROVEMENT: if the user asks what could be improved, refactored,
   optimized or reviewed in their own code, first read the relevant code
-  (find_in_code, then get_file_contents if it does not show enough). Give
+  (find_in_code; if a function is cut off, find_in_code again with
+  symbol set to its name). Give
   at most 4 suggestions, best first (a list longer than 4 is wrong). For each: the file and line, what to
   change and why. Add a small "Suggested change (not applied)" snippet
   only when it helps. Say clearly that these are suggestions: Vibe cannot
@@ -407,7 +408,7 @@ def _tracked_repos_section(tracked_repos) -> str:
         "search_repositories first. If several are listed, use the one "
         "the user names and ask only if it is unclear. For a question "
         "about how something in their project works, search and read "
-        "their code: first call find_in_code with keywords to find the file and line, then answer from the code snippets it returns, and call get_file_contents if they do not show what you need, for example how a value is set; never write that something is 'not shown' when you can read it (search_code is unreliable). If the question "
+        "their code: first call find_in_code with keywords to find the file and line, then answer from the code snippets it returns, and if they are cut off inside a function you need, call find_in_code again with symbol set to its name (for example ProviderRouter._select_provider) to get the whole function (get_file_contents only shows the start of a file); never write that something is 'not shown' when you can read it (search_code is unreliable). If the question "
         "is a general concept that is not about their project, answer "
         "it directly without tools.\n\n"
     )

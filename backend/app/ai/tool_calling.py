@@ -563,6 +563,24 @@ class ToolCallingService:
                     ),
                 }
 
+    MAX_HINTED_RESULT_CHARS = 7000
+
+    @classmethod
+    def _result_limit(cls, result: Any) -> int:
+        """A tool may ask for a bigger share with data["_max_chars"]. The
+        limit stays bounded."""
+
+        try:
+            data = result.get("data") if isinstance(result, dict) else None
+            hint = data.get("_max_chars") if isinstance(data, dict) else None
+        except Exception:
+            hint = None
+
+        if isinstance(hint, int) and hint > cls.MAX_TOOL_RESULT_CHARS:
+            return min(hint, cls.MAX_HINTED_RESULT_CHARS)
+
+        return cls.MAX_TOOL_RESULT_CHARS
+
     # ========================================================
     # BOUND TOOL RESULT
     # ========================================================
@@ -580,7 +598,7 @@ class ToolCallingService:
         Only the result sent back to the provider is bounded.
         """
 
-        max_chars = cls.MAX_TOOL_RESULT_CHARS
+        max_chars = cls._result_limit(result)
 
         result = compact_tool_result(result, max_chars)
 
@@ -664,6 +682,8 @@ class ToolCallingService:
                 else:
 
                     data_text = str(data)
+                    if len(data_text) > max_chars:
+                        print(f"✂️ tool result cut from {len(data_text)} to {max_chars} chars")
 
                     bounded["data"] = (
                         data_text[:max_chars]

@@ -807,6 +807,7 @@ def workspace_index_counts(db: Session, workspace_id: int) -> dict:
 
 SNIPPET_CONTEXT = 3
 FIRST_FILE_CHARS = 3200
+SINGLE_FILE_CHARS = 4000
 MIN_SCORE_SHARE = 0.25
 SECOND_FILE_CHARS = 1200
 GENERIC_SHARE = 0.2
@@ -819,8 +820,13 @@ TRACE_CONTEXT = 2
 MAX_TRACED_IDENTS = 3
 HEADER_RESERVE = 300
 HEADER_LOOKBACK = 60
-ANCHOR_SPAN = 45
-ANCHOR_BUDGET = 1300
+ANCHOR_SPAN = 160
+ANCHOR_BUDGET = 2400
+ANCHOR_SHARE = 0.6
+MAX_ANCHORS = 3
+BODY_SPAN = 170
+BODY_CHARS = 4200
+RESULT_CHARS = 6200
 _HEADER = re.compile(r"^\s*(?:async\s+def|def|class)\s+\w+")
 
 TRACE_SKIP = {
@@ -921,7 +927,9 @@ def keyword_windows(
 
         a = max(0, a)
         b = min(total - 1, b)
-        new = [j for j in range(a, b + 1) if j not in included]
+        new = [
+            j for j in range(a, b + 1) if j not in included and lines[j].strip()
+        ]
         cost = sum(len(rows[j]) + 1 for j in new)
 
         if used + cost > limit:
@@ -932,6 +940,63 @@ def keyword_windows(
         used += cost
 
         return True
+
+    def add_anchors() -> None:
+        """Bodies of the functions the index matched by name (at most three).
+        Short bodies are shown whole, a long one gets what is left."""
+
+        nonlocal used, truncated
+
+        spans = []
+
+        for line_no in (anchors or [])[:MAX_ANCHORS]:
+            start = line_no - 1
+
+            if not (0 <= start < total):
+                continue
+
+            indent = len(lines[start]) - len(lines[start].lstrip())
+            end = start
+
+            for k in range(start + 1, min(total, start + ANCHOR_SPAN + 1)):
+                if _ends_block(lines[k], indent):
+                    break
+
+                end = k
+
+            body = [j for j in range(start, end + 1) if lines[j].strip()]
+            spans.append((sum(len(rows[j]) + 1 for j in body), body))
+
+        if not spans:
+            return
+
+        remaining = min(ANCHOR_BUDGET, int(cap * ANCHOR_SHARE))
+        left = len(spans)
+        allowance: dict = {}
+
+        for index, (cost, _body) in sorted(
+            enumerate(spans), key=lambda item: item[1][0]
+        ):
+            share = remaining // left
+            allowance[index] = min(cost, share)
+            remaining -= allowance[index]
+            left -= 1
+
+        for index, (_cost, body) in enumerate(spans):
+            limit = min(cap, used + allowance[index])
+
+            for j in body:
+                if j in included:
+                    continue
+
+                row_cost = len(rows[j]) + 1
+
+                if used + row_cost > limit:
+                    truncated = True
+                    break
+
+                included.add(j)
+                used += row_cost
 
     if scored:
         best = max(score for score, _ in scored)
@@ -952,46 +1017,7 @@ def keyword_windows(
                 for j in traced:
                     add(j - TRACE_CONTEXT, j + TRACE_CONTEXT, trace_limit)
 
-        # The body of the functions the index matched by name, so a question
-        # about one function sees all of it, not only the lines that carry a
-        # keyword. Each one gets a share of a small budget.
-        per_anchor = ANCHOR_BUDGET // max(1, len(anchors or []))
-
-        for line_no in anchors or []:
-            start = line_no - 1
-
-            if not (0 <= start < total):
-                continue
-
-            indent = len(lines[start]) - len(lines[start].lstrip())
-            end = start
-
-            for k in range(start + 1, min(total, start + ANCHOR_SPAN + 1)):
-                current = lines[k]
-
-                if (
-                    current.strip()
-                    and len(current) - len(current.lstrip()) <= indent
-                    and _HEADER.match(current)
-                ):
-                    break
-
-                end = k
-
-            limit = min(cap, used + per_anchor)
-
-            for j in range(start, end + 1):
-                if j in included:
-                    continue
-
-                cost = len(rows[j]) + 1
-
-                if used + cost > limit:
-                    truncated = True
-                    break
-
-                included.add(j)
-                used += cost
+        add_anchors()
 
         for i in primary:
             add(i - context, i + context, cap)
@@ -1003,6 +1029,9 @@ def keyword_windows(
         for j in range(max(0, fallback_line - 2), min(total - 1, fallback_line + 28) + 1):
             if not add(j, j, max_chars):
                 break
+
+    elif anchors:
+        add_anchors()
 
     else:
         return "", False
@@ -1042,10 +1071,108 @@ def keyword_windows(
     previous = None
 
     for j in sorted(included):
-        if previous is not None and j != previous + 1:
+        if previous is not None and j != previous + 1 and any(
+            lines[k].strip() for k in range(previous + 1, j)
+        ):
             out.append("...")
 
         out.append(rows[j])
         previous = j
 
     return "\n".join(out), truncated
+
+
+# ------------------------------------------------------------
+# One function, whole (find_in_code with symbol=...)
+# ------------------------------------------------------------
+
+def _ends_block(line: str, indent: int) -> bool:
+    """True when `line` is back at (or left of) the indentation of the block
+    that started with a def/class at `indent`. A closing bracket of a
+    multi-line signature does not end the block."""
+
+    stripped = line.lstrip()
+
+    if not stripped or stripped[0] in ")]}":
+        return False
+
+    return len(line) - len(stripped) <= indent
+
+
+def find_symbol(db, workspace_id: int, symbol: str, repo: str | None = None):
+    """The indexed function, method or class with this name. Names are
+    compared exactly (underscores are not LIKE wildcards here)."""
+
+    from app.models.code_file import CodeSymbol
+
+    name = (symbol or "").strip().split(".")[-1].strip()
+
+    if not name:
+        return None
+
+    rows = (
+        db.query(CodeSymbol)
+        .filter(CodeSymbol.workspace_id == workspace_id, CodeSymbol.name == name)
+        .limit(50)
+        .all()
+    )
+
+    if repo:
+        wanted = repo.lower()
+        rows = [r for r in rows if wanted in (r.repo or "").lower()]
+
+    symbol = symbol.strip()
+    exact = [r for r in rows if r.qualname == symbol]
+    ends = [r for r in rows if (r.qualname or "").endswith("." + symbol)]
+
+    pick = exact or ends or rows
+
+    return pick[0] if pick else None
+
+
+def function_body(text: str, line_no: int, max_chars: int = BODY_CHARS):
+    """(numbered body without blank lines, first line, last line, truncated)
+    of the def/class that starts at `line_no`. Decorators above it are kept."""
+
+    lines = (text or "").splitlines()
+    start = int(line_no) - 1
+
+    if not (0 <= start < len(lines)):
+        return "", 0, 0, False
+
+    first = start
+
+    while first > 0 and lines[first - 1].lstrip().startswith("@"):
+        first -= 1
+
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    end = start
+    truncated = False
+
+    for k in range(start + 1, len(lines)):
+        if k - start > BODY_SPAN:
+            truncated = True
+            break
+
+        if _ends_block(lines[k], indent):
+            break
+
+        end = k
+
+    out = []
+    used = 0
+
+    for j in range(first, end + 1):
+        if not lines[j].strip():
+            continue
+
+        row = f"{j + 1}| {lines[j][:160]}"
+
+        if used + len(row) + 1 > max_chars:
+            truncated = True
+            break
+
+        out.append(row)
+        used += len(row) + 1
+
+    return "\n".join(out), first + 1, end + 1, truncated

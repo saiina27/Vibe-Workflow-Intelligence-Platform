@@ -63,7 +63,9 @@ class CodeSearchTool(BaseTool):
             "line numbers. Use identifier or topic words such as cooldown, "
             "router or sync. It also returns the matching lines of the best "
             "files in code, so you can usually answer from the result "
-            "without reading the file again."
+            "without reading the file again. If a function you need is cut off, "
+            "call it again with symbol set to its name (for example "
+            "ProviderRouter._select_provider) to get the whole function."
         )
 
     @property
@@ -83,6 +85,15 @@ class CodeSearchTool(BaseTool):
                 "repo": {
                     "type": ["string", "null"],
                     "description": "Optional repository (or part of its name).",
+                },
+                "symbol": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Exact name of a function, method or class from an "
+                        "earlier result (for example "
+                        "ProviderRouter._select_provider). Returns its whole "
+                        "body. Use it when the code shown was cut off."
+                    ),
                 },
             },
             "required": [],
@@ -193,11 +204,18 @@ class CodeSearchTool(BaseTool):
 
         out = []
 
+        readable = sum(1 for t in texts if t is not None)
+
         for index, (target, text) in enumerate(zip(targets, texts)):
             if text is None:
                 continue
 
-            limit = cidx.FIRST_FILE_CHARS if index == 0 else cidx.SECOND_FILE_CHARS
+            if readable == 1:
+                limit = cidx.SINGLE_FILE_CHARS
+            else:
+                limit = (
+                    cidx.FIRST_FILE_CHARS if index == 0 else cidx.SECOND_FILE_CHARS
+                )
 
             snippet, cut = cidx.keyword_windows(
                 text, tokens, limit, fallback_line=target[2],
@@ -217,6 +235,68 @@ class CodeSearchTool(BaseTool):
         return out
 
     # ------------------------------------------------------------
+    # one function, whole
+    # ------------------------------------------------------------
+
+    def _read_symbol(self, symbol: str, repo: str | None) -> dict[str, Any]:
+        row = cidx.find_symbol(
+            self.context.db, self.context.workspace_id, symbol, repo
+        )
+
+        if row is None:
+            return {
+                "success": False,
+                "error": (
+                    f"No function, method or class named '{symbol}' is in the "
+                    "code index. Search with keywords first."
+                ),
+            }
+
+        text = self._file_text(row.repo, row.path, self._sha(row.repo, row.path))
+
+        if text is None:
+            return {
+                "success": False,
+                "error": (
+                    "The file could not be fetched (GitHub is not connected or "
+                    "did not respond)."
+                ),
+            }
+
+        body, first, last, truncated = cidx.function_body(text, row.line)
+
+        if not body:
+            return {
+                "success": False,
+                "error": "The function is not at its saved line. Run Index code again.",
+            }
+
+        print(f"🔎 read {row.qualname}: lines {first}-{last} of {row.path}")
+
+        result: dict[str, Any] = {
+            "success": True,
+            "symbol": row.qualname,
+            "kind": row.kind,
+            "first_line": first,
+            "last_line": last,
+            "code": [
+                {
+                    "repo": row.repo,
+                    "path": row.path,
+                    "lines": body,
+                    "truncated": truncated,
+                }
+            ],
+            "_notice": NOTICE,
+            "_max_chars": cidx.RESULT_CHARS,
+        }
+
+        if looks_like_injection(body):
+            result["_warning"] = WARNING
+
+        return result
+
+    # ------------------------------------------------------------
     # execution
     # ------------------------------------------------------------
 
@@ -225,8 +305,14 @@ class CodeSearchTool(BaseTool):
         keywords: Any = None,
         query: Any = None,
         repo: Any = None,
+        symbol: Any = None,
         **_ignored: Any,
     ) -> dict[str, Any]:
+
+        if isinstance(symbol, str) and symbol.strip():
+            return self._read_symbol(
+                symbol.strip(), str(repo).strip() if repo else None
+            )
 
         words: list[str] = []
 
@@ -305,4 +391,18 @@ class CodeSearchTool(BaseTool):
                     "file."
                 )
 
-        return result
+        # The code goes first: if a result is ever cut, the matches (the least
+        # important part) are what is lost. The size hint lets this tool use a
+        # bigger share of the limit.
+        ordered: dict[str, Any] = {}
+
+        for key in ("success", "count", "code", "code_note"):
+            if key in result:
+                ordered[key] = result[key]
+
+        ordered.update({k: v for k, v in result.items() if k not in ordered})
+
+        if "code" in ordered:
+            ordered["_max_chars"] = cidx.RESULT_CHARS
+
+        return ordered
